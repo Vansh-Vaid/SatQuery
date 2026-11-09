@@ -91,6 +91,22 @@ Fixes:
 
 Result: 60 fps on both pages, and about 0.3 s per warm analysis with a 0.9 MB response.
 
+### D13. Remote-sensing adaptation on CPU now, VLM fine-tune on GPU later
+The mandatory adaptation requirement was not met at runtime: the BigEarthNet.txt LoRA needs a GPU. The brief
+also allows "any open-source training data", so two adapted components were trained on this CPU:
+- **EuroSAT ResNet-18.** Trained on the official splits: 95.7% test accuracy, and 93% on raw 13-band
+  GeoTIFFs rendered by SatQuery, so the rendering adds little domain gap.
+- **RSVQA-LR specialist.** Frozen EuroSAT features plus land-cover fractions, fused with a bag-of-words
+  question encoding by elementwise product (Lobry et al. 2020): 84.6% on the official test split.
+
+Routing rules:
+- The specialist answers closed questions (yes/no, rural/urban, counts) and abstains on open ones.
+- The EuroSAT classifier answers land-use questions.
+- The land-cover reasoner stays as a measured cross-check: agreement raises confidence, disagreement lowers it.
+
+The first integration lost about 11 points to routing ("Is a road present?" went to the Highway class),
+which the per-tool error attribution exposed and the fix recovered.
+
 ### D9. Synthetic Sentinel-1/2 scenes with known ground truth for tests and demos
 They let tests assert correctness (fractions, change IoU, directions), not just "it runs", and make the
 demo work offline. Real-data accuracy is measured by `eval/` on the named benchmarks.

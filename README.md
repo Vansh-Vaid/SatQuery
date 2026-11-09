@@ -18,8 +18,8 @@ pair**, ask a question in plain English, and SatQuery:
 
 | Problem-statement requirement | Implementation |
 |---|---|
-| RS adaptation of a VL component on BigEarthNet.txt | `training/prepare_bigearthnet_txt.py` + `training/finetune_vlm.py`: LoRA on **Qwen3-VL-2B** with BigEarthNet.txt captions, binary/MCQ VQA and referring boxes, S2 + S1 multi-image input → tool `rs_vlm` |
-| Single-image VQA (mandatory) | `rs_vlm` (free-form) + `landcover_reasoner` (presence / area / comparison / count / rural-urban, evidence-based cross-check) |
+| RS adaptation of a visual component (BigEarthNet.txt **or open-source data**) | **Running now, trained on CPU:** ResNet-18 fine-tuned on EuroSAT Sentinel-2 (`rs_scene_classifier`, 95.7% test accuracy) and an RSVQA-LR VQA specialist built on it (`rsvqa_vqa`, 84.6% test accuracy). **GPU path, not yet run:** LoRA on Qwen3-VL-2B with BigEarthNet.txt (`training/finetune_vlm.py` → `rs_vlm`) |
+| Single-image VQA (mandatory) | `rsvqa_vqa` (trained: presence, comparison, count, rural/urban), `rs_scene_classifier` (land-use questions), `landcover_reasoner` (measured cross-check), `rs_vlm` when a VLM is configured (free-form) |
 | + captioning **or** grounding | **Both**: `rs_vlm` captioning and box grounding; `region_grounder` mask + box grounding (works without the VLM); VLM boxes are verified against land-cover evidence |
 | Change description / change-VQA on a bi-temporal pair | `change_detector` (normalised CVA / SAR log-ratio / optional learned Siamese U-Net) → `change_semantics` (from→to transitions) → `change_qa` (yes/no, increase/decrease/unchanged, ratio, largest change, "what did X become", where, description); change map + magnitude heatmap |
 | Optical–SAR complementary extraction | `landcover_optical` + `landcover_sar` → `optical_sar_fusion` (class-weighted decision fusion, SAR fills cloud gaps, per-class cross-sensor agreement, disagreement map); `rs_vlm` reads both images jointly |
@@ -28,7 +28,7 @@ pair**, ask a question in plain English, and SatQuery:
 | Formats | GeoTIFF/TIFF (any band count, uint8/uint16/float, linear or dB SAR); PNG/JPEG accepted for benchmark images with an explicit warning |
 | Visual evidence, confidence, execution summary, downloadable reports | Web UI gallery (masks, heatmaps, boxes), heuristic confidence score + label (see D7), step-by-step trace (tool, params, status, timing, output), HTML report with embedded images + JSON trace |
 | Interactive GUI | FastAPI + web UI (`satquery/web/`), demo scenarios built in |
-| Test & demo scripts | `tests/` (44 tests), `scripts/smoke_vlm_pipeline.py`, `scripts/run_query.py`, `demo_data/` |
+| Test & demo scripts | `tests/` (51 tests), `scripts/smoke_vlm_pipeline.py`, `scripts/run_query.py`, `demo_data/` |
 | Evaluation on VRSBench, RSVQA, CDVQA (+ BigEarthNet.txt bench) | `eval/convert.py` (dataset → common JSONL) + `eval/run_eval.py` (agent or VLM-only; accuracy per question type, BLEU/ROUGE-L/CIDEr, mIoU / Acc@0.5) |
 
 ## Architecture
@@ -184,11 +184,30 @@ python eval/run_eval.py --data eval/data/bentxt_bench.jsonl --mode vlm --out eva
 `--mode vlm` isolates the adapted model (run it once with and once without `SATQUERY_VLM_ADAPTER` to
 measure the adaptation gain); `--mode agent` measures the full system.
 
-**Status:** benchmark numbers are not reported yet. They require the GPU fine-tune and the benchmark
-downloads. What *is* verified: 44 unit/integration tests on synthetic Sentinel-1/2 scenes with known
-ground truth (e.g. land-cover fractions within 3 pp, change-mask IoU > 0.7, unchanged pairs report no
-change, fusion restores the cloud-hidden water fraction) and the VLM training/inference plumbing
-(smoke test).
+**Measured results** (all on held-out test data; reproduce with the commands above and below):
+
+| What | Data | Result |
+|---|---|---|
+| `rs_scene_classifier` (EuroSAT-adapted ResNet-18) | EuroSAT official test split, 5,399 images | **95.7%** accuracy |
+| Same model on raw 13-band GeoTIFFs via SatQuery's loader and rendering | EuroSAT100, 100 real Sentinel-2 tiles | **93%** accuracy |
+| `rsvqa_vqa` alone | RSVQA-LR official test split, 10,004 questions | **84.6%** overall; presence 90.7%, comparison 89.2%, rural/urban 88.0%, count 72.0% (5 bins) |
+| Full agent (planner + tools + integration) | RSVQA-LR test, stratified 1,300-question sample | **85.7%** overall |
+| Full agent before the trained specialist (rules only) | same sample | 41.8% (near chance) |
+| Land-cover tool on real Sentinel-2 | EuroSAT100 | water 64% on sea/lake/river tiles vs 0.6% elsewhere; vegetation 100% on forest |
+
+```bash
+python training/train_scene_classifier.py --data data/eurosat        # ~18 min CPU
+python training/train_rsvqa_lr.py --root data/rsvqa_lr              # ~3 min CPU
+python eval/real_sentinel2_check.py --root data/eurosat/ms100
+python eval/convert.py rsvqa --root data/rsvqa_lr --split test --out eval/data/rsvqa_lr_test.jsonl
+python eval/run_eval.py --data eval/data/rsvqa_lr_test.jsonl --mode agent --out eval/results/rsvqa_lr
+```
+
+For reference, the original RSVQA-LR paper (Lobry et al., 2020) reported about 79% overall. Count protocols
+may differ, so treat this as indicative. **Not yet run:** VRSBench, CDVQA, and the BigEarthNet.txt VLM
+fine-tune (needs a GPU). The change and optical-SAR tools are verified on synthetic Sentinel-1/2 scenes with
+known ground truth (land-cover fractions within 3 pp, change-mask IoU > 0.7, unchanged pairs report no
+change), not yet on real image pairs.
 
 ## Repository layout
 
