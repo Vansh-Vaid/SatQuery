@@ -1,0 +1,69 @@
+{
+  "note": "Synthetic Sentinel-1/2 scenes with known ground truth (satquery/demo/synth.py).",
+  "scenarios": [
+    {
+      "id": "single_s2",
+      "title": "Single Sentinel-2 scene (12 bands)",
+      "files": [
+        "s2_2024-06-01.tif"
+      ],
+      "queries": [
+        "Describe the land-cover and major objects visible in this image.",
+        "Highlight the water body referred to in the query.",
+        "Is there more vegetation than built-up area?",
+        "How many water bodies are there?"
+      ]
+    },
+    {
+      "id": "single_s1",
+      "title": "Single Sentinel-1 SAR scene (VV/VH)",
+      "files": [
+        "s1_2024-06-02.tif"
+      ],
+      "queries": [
+        "Is there any water in this image?",
+        "Highlight the built-up area.",
+        "Describe this SAR image."
+      ]
+    },
+    {
+      "id": "cross_modal",
+      "title": "Cross-modal: cloudy Sentinel-2 + Sentinel-1",
+      "files": [
+        "s2_cloudy_2024-06-01.tif",
+        "s1_2024-06-02.tif"
+      ],
+      "queries": [
+        "Use the optical and SAR images together to identify built-up and water-covered regions.",
+        "How much of the scene is water?",
+        "Describe the scene using both sensors."
+      ]
+    },
+    {
+      "id": "bitemporal_s2",
+      "title": "Bi-temporal Sentinel-2 (2024 \u2192 2025)",
+      "files": [
+        "s2_2024-06-01.tif",
+        "s2_2025-06-05.tif"
+      ],
+      "queries": [
+        "What changed between these two dates, and where did the change occur?",
+        "Has the built-up area increased, decreased, or remained unchanged?",
+        "What did the water turn into?",
+        "How much of the area changed?"
+      ]
+    },
+    {
+      "id": "bitemporal_s1",
+      "title": "Bi-temporal Sentinel-1 (2024 \u2192 2025)",
+      "files": [
+        "s1_2024-06-02.tif",
+        "s1_2025-06-06.tif"
+      ],
+      "queries": [
+        "What changed between these two dates, and where did the change occur?",
+        "Has the water area decreased?"
+      ]
+    }
+  ]
+}

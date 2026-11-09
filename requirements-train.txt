@@ -1,0 +1,13 @@
+# Model training / local VLM inference (GPU recommended). Install on top of requirements.txt.
+# Install torch + torchvision as a matched pair from https://pytorch.org for your CUDA version first.
+torch>=2.4
+torchvision>=0.19
+transformers>=4.57          # Qwen3-VL support (AutoModelForImageTextToText)
+peft>=0.13
+accelerate>=1.0
+safetensors>=0.4
+huggingface_hub>=0.25
+pandas>=2.1
+pyarrow>=15
+lmdb>=1.4                   # only for the rico-hdl encoded BigEarthNet LMDB
+pycocoevalcap>=1.2          # optional: CIDEr in eval/run_eval.py

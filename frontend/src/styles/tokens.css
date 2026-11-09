@@ -1,0 +1,51 @@
+/* SatQuery AI design tokens - shared by the landing page and the console.
+   Off-white paper, olive-black ink, burnt-orange accent, olive secondary. */
+:root {
+  /* surfaces */
+  --bg-void: #faf7f0;            /* page */
+  --bg-viewport: #f1ecdf;        /* image well */
+  --bg-hud-panel: rgba(255, 253, 249, .86);
+  --bg-evidence-card: #fffdf9;
+  --bg-trace-node: #fffdf9;
+
+  /* text */
+  --text-white: #2a2d1e;         /* strongest text (legacy name) */
+  --text-ice: #4a4d3a;           /* body */
+  --text-muted: #6f705c;
+
+  /* accents */
+  --accent-cyan: #d2651f;        /* primary accent (legacy name) -> burnt orange */
+  --accent-strong: #b14f12;      /* orange for text */
+  --accent-blue: #6b7a2e;        /* secondary -> olive */
+  --olive: #6b7a2e;
+  --olive-d: #4f5b22;
+  --olive-l: #a9b36b;
+  --grounding-amber: #d2651f;
+  --change-crimson: #c0392b;
+  --ok: #5a6e1e;
+  --warn: #a86b12;
+  --fail: #c0392b;
+  --water: #4f86a6;
+  --box-ground: #d2651f;
+  --box-vlm: #4f86a6;
+  --box-change: #c0392b;
+
+  --border-glow: rgba(42, 45, 30, .14);
+  --border-active: rgba(210, 101, 31, .55);
+  --relativistic: linear-gradient(135deg, #e07a2e 0%, #b14f12 100%);
+
+  /* typography */
+  --font-gothic-display: "Fraunces Variable", "Fraunces", Georgia, serif;
+  --font-gothic-ui: "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-telemetry: "IBM Plex Mono", ui-monospace, monospace;
+
+  --fs-hero: 1.35rem;
+  --fs-h2: 1.25rem;
+  --fs-h3: 1rem;
+  --fs-body: .95rem;
+  --fs-micro: .76rem;
+
+  --ease-orbital: cubic-bezier(0.2, 0.7, 0.1, 1);
+  --radius: 14px;
+  --gutter: 16px;
+}

@@ -1,0 +1,221 @@
+# SatQuery AI
+
+**An agentic vision-language assistant for multimodal remote-sensing image analysis through text queries.**
+
+Upload one image (optical / multispectral / SAR), a co-registered **optical + SAR pair**, or a **bi-temporal
+pair**, ask a question in plain English, and SatQuery:
+
+1. validates the inputs (count, format, modality, metadata, grid / CRS / footprint compatibility, dates),
+2. interprets the query and classifies the task,
+3. selects and sequences specialist models/tools from a predefined registry (Claude planner or rule planner),
+4. sets only permitted, bounded parameters and executes the workflow,
+5. integrates textual and spatial outputs, cross-checks sources, estimates confidence, renders visual evidence,
+6. returns an auditable execution trace and a downloadable report.
+
+---
+
+## Requirement coverage
+
+| Problem-statement requirement | Implementation |
+|---|---|
+| RS adaptation of a VL component on BigEarthNet.txt | `training/prepare_bigearthnet_txt.py` + `training/finetune_vlm.py`: LoRA on **Qwen3-VL-2B** with BigEarthNet.txt captions, binary/MCQ VQA and referring boxes, S2 + S1 multi-image input → tool `rs_vlm` |
+| Single-image VQA (mandatory) | `rs_vlm` (free-form) + `landcover_reasoner` (presence / area / comparison / count / rural-urban, evidence-based cross-check) |
+| + captioning **or** grounding | **Both**: `rs_vlm` captioning and box grounding; `region_grounder` mask + box grounding (works without the VLM); VLM boxes are verified against land-cover evidence |
+| Change description / change-VQA on a bi-temporal pair | `change_detector` (normalised CVA / SAR log-ratio / optional learned Siamese U-Net) → `change_semantics` (from→to transitions) → `change_qa` (yes/no, increase/decrease/unchanged, ratio, largest change, "what did X become", where, description); change map + magnitude heatmap |
+| Optical–SAR complementary extraction | `landcover_optical` + `landcover_sar` → `optical_sar_fusion` (class-weighted decision fusion, SAR fills cloud gaps, per-class cross-sensor agreement, disagreement map); `rs_vlm` reads both images jointly |
+| Agentic orchestration | `satquery/agent/`: planner (Claude `claude-opus-5-5` with structured JSON limited to the registry, or rules) → `validate_plan` (unknown/incompatible/unavailable tools dropped, dependencies auto-inserted, undeclared params rejected, values clipped) → executor → integrator |
+| Input checking | `satquery/imagery/validate.py`: per-check pass/warn/fail, chronological reordering, reprojection to a common grid, footprint IoU, joint valid-pixel coverage |
+| Formats | GeoTIFF/TIFF (any band count, uint8/uint16/float, linear or dB SAR); PNG/JPEG accepted for benchmark images with an explicit warning |
+| Visual evidence, confidence, execution summary, downloadable reports | Web UI gallery (masks, heatmaps, boxes), heuristic confidence score + label (see D7), step-by-step trace (tool, params, status, timing, output), HTML report with embedded images + JSON trace |
+| Interactive GUI | FastAPI + web UI (`satquery/web/`), demo scenarios built in |
+| Test & demo scripts | `tests/` (44 tests), `scripts/smoke_vlm_pipeline.py`, `scripts/run_query.py`, `demo_data/` |
+| Evaluation on VRSBench, RSVQA, CDVQA (+ BigEarthNet.txt bench) | `eval/convert.py` (dataset → common JSONL) + `eval/run_eval.py` (agent or VLM-only; accuracy per question type, BLEU/ROUGE-L/CIDEr, mIoU / Acc@0.5) |
+
+## Architecture
+
+```
+            ┌──────────── Web UI / REST API / CLI ────────────┐
+ query  ──► │                                                 │ ──► answer · confidence · visual evidence
+ images ──► │  1 Input validation  (imagery/validate.py)      │     execution trace · HTML/JSON report
+            │  2 Planner  Claude (structured JSON) | rules    │
+            │  3 Plan validator  ── tool registry (9 tools) ──┤
+            │  4 Executor  (shared upstream outputs)          │
+            │  5 Integrator  cross-checks · confidence        │
+            └──────────────────────────────────────────────────┘
+   Registry ─┬─ rs_vlm ............. Qwen3-VL-2B + LoRA(BigEarthNet.txt)   learned, RS-adapted
+             ├─ landcover_optical .. NDVI / MNDWI / NDBI / BSI + cloud      algorithmic
+             ├─ landcover_sar ...... Lee filter, Otsu water, double-bounce  algorithmic
+             ├─ optical_sar_fusion . class-weighted fusion, cloud gap-fill  algorithmic
+             ├─ region_grounder .... referring-expression → regions/boxes   algorithmic
+             ├─ landcover_reasoner . evidence-based VQA / description       reasoning
+             ├─ change_detector .... CVA / log-ratio / Siamese U-Net        algorithmic / learned
+             ├─ change_semantics ... land-cover transitions in change mask  algorithmic
+             └─ change_qa .......... change-VQA + change description        reasoning
+```
+
+Why both learned and algorithmic specialists: the adapted VLM gives free-form language understanding;
+the physically based tools give pixel-accurate, quantitative, auditable evidence (areas, maps, cloud
+gap-filling) and keep the system useful when the GPU model is offline. The integrator uses one to check
+the other (e.g. VLM yes/no vs. measured class fraction; VLM boxes vs. land-cover masks) and lowers
+confidence on disagreement. See `docs/DECISIONS.md`.
+
+## Quickstart
+
+```bash
+pip install -r requirements.txt
+uvicorn satquery.api.app:app --port 8000
+# http://localhost:8000          landing page (3D globe, live layer stack, live evidence)
+# http://localhost:8000/console  analysis console → pick a mode / demo scenario → EXECUTE
+```
+
+Both pages share one visual system: off-white paper, olive-black text, a burnt-orange accent and olive
+secondary colours, set in Fraunces (headlines), Manrope (interface) and IBM Plex Mono (data values).
+
+The landing page is a short front door, about two screens on desktop:
+- a draggable 3D atlas globe with Sentinel-1/2 orbits and a "Try asking" prompt;
+- a ticker of example questions;
+- an interactive 3D stack of the real analysis layers for each input type;
+- three "how it works" steps, each showing a live fact from a demo run.
+
+All of its imagery is live output from the running backend. If the backend is unreachable, the page labels
+the illustrative fallbacks as such. Every link opens the console with the scene and question prefilled
+(`/console?mode=…&demo=…&q=…`).
+
+The built UI ships in `satquery/web/dist`. To change it:
+
+```bash
+cd frontend && npm install
+npm run dev        # hot-reload on :5173, proxies /api to :8000
+npm run build      # type-check + build into satquery/web/dist
+```
+
+### Console (`/console`)
+
+A three-column workspace in React + TypeScript + Three.js (react-three-fiber):
+
+- **Backdrop:** a light atlas globe that rotates and zooms to the loaded GeoTIFF's WGS84 footprint and
+  outlines it in orange. It renders on demand, only while moving.
+- **01 Inputs:** three modes (single image, optical + radar, before & after), drop slots, demo scenes, and
+  live input checks from `/api/inspect` (format, alignment, size and bands, dates).
+- **02 Viewer:**
+  - a split-swipe curtain (optical ↔ radar, before ↔ after; vertical or horizontal; keyboard accessible);
+  - a layer bar for true colour, false-colour infrared, radar, boxes, change masks and every tool layer;
+  - boxes with lat/lon callouts, and a crosshair showing pixel and approximate lat/lon.
+- **03 Ask:** a question box with example-question chips (Enter to run).
+- **04 Answer:**
+  - an answer card whose highlighted words draw beams to their regions on the image;
+  - a flip side with the audit log (model, adaptation source, input shapes, latency, parameters, regions);
+  - the execution trace as a directed graph: task, input checks, validator corrections, each tool with its
+    status, latency, confidence and parameters, then the result.
+- **Export:** a ZIP bundle (PDF, Markdown, HTML, GeoJSON in WGS84, JSON trace), or each format separately.
+- **Responsive and accessible:** single column below 900 px, and `prefers-reduced-motion` stops
+  decorative motion.
+
+Performance:
+- Both pages hold 60 fps in Chrome, measured with a rAF frame counter on the development machine.
+- An analysis request takes about 0.3 s warm. Report images are rendered only when a report is downloaded,
+  which keeps the API response under 1 MB.
+
+CLI:
+
+```bash
+python scripts/run_query.py "What changed between these two dates, and where did the change occur?" \
+    demo_data/s2_2024-06-01.tif demo_data/s2_2025-06-05.tif --report out/report.html
+```
+
+Tests: `python -m pytest -q` (CPU, ~30 s). VLM plumbing smoke test (tiny random Qwen3-VL, CPU, ~1 min):
+`pip install -r requirements-train.txt && python scripts/smoke_vlm_pipeline.py`.
+
+### Configuration (environment variables)
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `SATQUERY_PLANNER` | `auto` | `auto` (Claude if credentials resolve, else rules), `llm`, `rules` |
+| `SATQUERY_PLANNER_MODEL` / `_EFFORT` | `claude-opus-5-5` / `low` | Claude planner model and effort |
+| `ANTHROPIC_API_KEY` | – | Claude credentials (or an `ant auth login` profile) |
+| `SATQUERY_VLM_BACKEND` | `off` | `hf` (local transformers), `remote` (GPU server), `off` |
+| `SATQUERY_VLM_BASE` | `Qwen/Qwen3-VL-2B-Instruct` | base VLM |
+| `SATQUERY_VLM_ADAPTER` | – | path / HF id of the BigEarthNet.txt LoRA adapter |
+| `SATQUERY_VLM_ENDPOINT` | – | URL of `scripts/serve_vlm.py` when backend is `remote` |
+| `SATQUERY_CHANGE_CKPT` | – | Siamese U-Net checkpoint (enables learned change detection) |
+
+The Claude planner uses structured outputs (JSON schema whose tool enum *is* the registry), server-side
+refusal fallbacks (`fallbacks: "default"`), prompt caching of the registry prompt, and falls back to the
+rule planner on any API error. Either way, every plan passes `validate_plan` before execution.
+
+## Remote-sensing adaptation (training)
+
+The machine this was built on has no GPU, so training runs on Kaggle/Colab/a rented GPU:
+
+1. **Data.** `BigEarthNet.txt.parquet` (464k S1/S2 pairs, 9.6M annotations; HF
+   `BIFOLD-BigEarthNetv2-0/BigEarthNet.txt`, CDLA-Permissive-1.0) + BigEarthNet v2.0 imagery
+   (GeoTIFF folders or rico-hdl LMDB).
+   ```bash
+   python training/prepare_bigearthnet_txt.py --s2-root BigEarthNet-S2 --s1-root BigEarthNet-S1 \
+       --out data/bentxt --per-type 6000 --splits train validation bench
+   ```
+   Images are rendered with the same code as inference (`satquery/models/vlm_prompts.py`); 30% of
+   samples are S2-only so the model works on single images; the rest present S2 + S1 together.
+2. **LoRA fine-tune** (Qwen3-VL-2B, r=16, language-model attention + MLP, frozen vision encoder,
+   answer-only loss; ~3-4 h on an L4 for 24k samples):
+   ```bash
+   python training/finetune_vlm.py --data data/bentxt --out checkpoints/satquery-vlm-lora --epochs 1
+   ```
+3. **Serve.** Local: `SATQUERY_VLM_BACKEND=hf SATQUERY_VLM_ADAPTER=checkpoints/satquery-vlm-lora`.
+   Remote GPU: `python scripts/serve_vlm.py --adapter checkpoints/satquery-vlm-lora` and point
+   `SATQUERY_VLM_ENDPOINT` at it.
+4. **Optional learned change detector** on LEVIR-CD: `python training/train_change.py --root LEVIR-CD
+   --out checkpoints/change_unet.pt`.
+
+Reference point: the BigEarthNet.txt paper's own LoRA fine-tune of InternVL3-1B reports large gains
+over zero-shot VLMs on its benchmark (binary VQA ~73% vs ~62%, referring mIoU ~66 vs ~32).
+
+## Evaluation
+
+```bash
+python eval/convert.py bentxt   --root data/bentxt --split bench --out eval/data/bentxt_bench.jsonl
+python eval/convert.py rsvqa    --root RSVQA_LR --split test     --out eval/data/rsvqa_lr.jsonl
+python eval/convert.py vrsbench --root VRSBench                  --out eval/data/vrsbench.jsonl
+python eval/convert.py cdvqa    --questions CDVQA/Test.json --im1 CDVQA/im1 --im2 CDVQA/im2 --peek   # check keys first
+python eval/run_eval.py --data eval/data/rsvqa_lr.jsonl --mode agent --out eval/results/rsvqa
+python eval/run_eval.py --data eval/data/bentxt_bench.jsonl --mode vlm --out eval/results/bench_lora
+```
+
+`--mode vlm` isolates the adapted model (run it once with and once without `SATQUERY_VLM_ADAPTER` to
+measure the adaptation gain); `--mode agent` measures the full system.
+
+**Status:** benchmark numbers are not reported yet. They require the GPU fine-tune and the benchmark
+downloads. What *is* verified: 44 unit/integration tests on synthetic Sentinel-1/2 scenes with known
+ground truth (e.g. land-cover fractions within 3 pp, change-mask IoU > 0.7, unchanged pairs report no
+change, fusion restores the cloud-hidden water fraction) and the VLM training/inference plumbing
+(smoke test).
+
+## Repository layout
+
+```
+satquery/
+  imagery/   raster model, GeoTIFF/PNG loading, modality inference, rendering, validation
+  tools/     registry + 9 specialist tools (base.py = contract: specs, params, results)
+  agent/     planner (Claude / rules), plan validator, controller (execute, integrate, trace)
+  models/    VLM prompt/rendering contract, VLM backends (HF / remote), Siamese U-Net
+  reports/   HTML/JSON reports + bundle (PDF, Markdown, GeoJSON, ZIP)
+  api/       FastAPI backend (/api/inspect, /api/analyze, /api/report/*)
+  web/dist/  built web UI (source in frontend/)
+frontend/    React + TypeScript + Three.js HUD (Vite)
+  demo/      synthetic S1/S2 scene generator + demo scenarios
+training/    BigEarthNet.txt preparation, LoRA fine-tuning, change-detector training
+eval/        benchmark converters, metrics, evaluation runner
+scripts/     CLI, VLM GPU server, VLM pipeline smoke test
+tests/       pytest suite
+docs/        DECISIONS.md (design decisions and rationale)
+```
+
+## Known limitations
+
+- Algorithmic land-cover tools use fixed physical thresholds; they are robust on Sentinel-1/2 but
+  approximate on 8-bit RGB benchmark images (flagged with lower confidence in the output).
+- Counting questions count land-cover *patches*, not objects; object-level counting relies on the VLM.
+- The VLM's change reading is auxiliary (BigEarthNet.txt has no bi-temporal pairs); change answers are
+  driven by the change specialists.
+- CDVQA's answer vocabulary for ratio questions must be confirmed against the downloaded files
+  (`change_qa` emits `"<lo>%_to_<hi>%"` bins; adapt `eval/metrics.normalize_answer` if needed).

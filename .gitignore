@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+runs/
+checkpoints/
+data/
+eval/data/
+eval/results/
+*.log
+.env
+frontend/node_modules/
