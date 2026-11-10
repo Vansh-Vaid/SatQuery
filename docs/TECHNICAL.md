@@ -169,12 +169,11 @@ Deploy routes:
     of `:latest`.
   - It forces a new revision through an env var, because express environments reject revision suffixes.
   - Measured on the live app: demo analyses answer in about 1.5 s.
-- `python scripts/deploy_hf_space.py` (Hugging Face Space). Docker Spaces now need HF PRO; the free tier
-  returns 402.
-- `docker compose up -d` (any server).
+- Any Docker host: `docker run -p 8000:7860 ghcr.io/vansh-vaid/satquery:latest`. Hugging Face Spaces was
+  the first plan, but Docker Spaces now need HF PRO (the free tier returns 402), so that route was dropped.
 
 The build runs `import rasterio, cv2, torch, ...` so that a missing system library fails the build, not
-the live app. The first live deploy failed this way: `python:3.11-slim` no longer ships `libexpat1`,
+the live app. The first live deploy failed this way: the `python:*-slim` images no longer ship `libexpat1`,
 which the rasterio wheel's GDAL needs.
 
 One process is deliberate: the rate limiter, the demo cache and the report store are in memory. To scale

@@ -1,8 +1,9 @@
-# SatQuery AI - production image (CPU). Runs on Hugging Face Spaces, any Docker host, or a VPS.
+# SatQuery AI - production image (CPU). Built by GitHub Actions (.github/workflows/build-image.yml) and run
+# on Azure Container Apps; it also runs on any Docker host:
 #   docker build -t satquery .   &&   docker run -p 8000:7860 satquery   ->  http://localhost:8000
-# Trained models are baked in from checkpoints/ when present in the build context (they are not in git;
-# scripts/deploy_hf_space.py uploads them with the code). Without them the app runs on measurement tools only.
-FROM python:3.11-slim
+# Trained models are baked in from checkpoints/ when present in the build context (they are not in git; the
+# GitHub build downloads them from the "models-v1" release). Without them the app runs on measurement tools only.
+FROM python:3.13-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 \
     TORCH_HOME=/opt/torch MPLCONFIGDIR=/tmp/matplotlib

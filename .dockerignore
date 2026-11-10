@@ -8,11 +8,12 @@
 .env
 data/
 runs/
-runs_*/
 eval/
 training/
 kaggle/
 tests/
 docs/
 frontend/
-satquery_ai_*.md
+scripts/
+.github/
+README.md

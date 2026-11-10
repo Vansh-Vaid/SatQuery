@@ -355,7 +355,7 @@ export default function Landing() {
         <div className="lp-wrap lp-foot-grid">
           <a className="lp-brand" href="/"><Logo /><span>SatQuery</span><em>AI</em></a>
           <p>An agentic vision-language assistant for multimodal remote-sensing analysis.</p>
-          <p className="lp-data">Trained on EuroSAT, RSVQA-LR and CDVQA · Coastlines: Natural Earth</p>
+          <p className="lp-data">Trained on EuroSAT, RSVQA-LR, CDVQA and VRSBench · Coastlines: Natural Earth</p>
         </div>
       </footer>
     </div>

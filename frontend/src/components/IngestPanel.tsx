@@ -1,5 +1,5 @@
 // PANEL // 01 // INGEST - multimodal ingestion & compatibility gate (spec §5.2.1)
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactElement } from "react";
 import type { Check, ImageEntry, InspectResult, Mode, Scenario, Slot } from "../api";
 
 interface Props {
@@ -46,7 +46,7 @@ function Badge({ k, v, s }: { k: string; v: string; s?: "pass" | "warn" | "fail"
 
 function CompatibilityGate({ r }: { r: InspectResult }) {
   const [open, setOpen] = useState(false);
-  const badges: JSX.Element[] = [];
+  const badges: ReactElement[] = [];
   r.images.forEach((im, i) => {
     const f = statusOf(r.checks, `image${i + 1}.format`);
     const tag = r.images.length > 1 ? (r.config === "bitemporal" ? (i === 0 ? "Before " : "After ") : `Image ${i + 1} `) : "";

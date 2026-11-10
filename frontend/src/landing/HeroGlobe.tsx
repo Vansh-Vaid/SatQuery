@@ -13,8 +13,8 @@ const LAKE = "#6B7A2E";
 
 interface Props {
   reduced: boolean;
-  marker: React.RefObject<HTMLButtonElement>;
-  telemetry: React.RefObject<HTMLSpanElement>[];
+  marker: React.RefObject<HTMLButtonElement | null>;
+  telemetry: React.RefObject<HTMLSpanElement | null>[];
 }
 
 const _v = new THREE.Vector3();
@@ -23,7 +23,7 @@ const _cam = new THREE.Vector3();
 
 function Sat({ radius, tilt, phase, speed, color, swath, earth, readout, reduced }: {
   radius: number; tilt: [number, number]; phase: number; speed: number; color: string; swath?: boolean;
-  earth: React.RefObject<THREE.Group>; readout?: React.RefObject<HTMLSpanElement>; reduced: boolean;
+  earth: React.RefObject<THREE.Group | null>; readout?: React.RefObject<HTMLSpanElement | null>; reduced: boolean;
 }) {
   const sat = useRef<THREE.Group>(null);
   const ring = useMemo(() => new THREE.Line(orbitRing(radius),

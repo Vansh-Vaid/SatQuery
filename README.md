@@ -241,19 +241,17 @@ Azure for Students only allows some regions (the script uses `koreacentral`; che
 `az policy assignment list`) and does not allow Azure's own build service, which is why GitHub builds the
 app.
 
-### Hugging Face Space (needs a paid PRO account)
-
-Hugging Face now charges for Docker Spaces. With PRO, `python scripts/deploy_hf_space.py` uploads the app
-and models and prints a `*.hf.space` link. Options: `--private`, `--space name/other-name`, and
-`--with-claude`, which stores your `ANTHROPIC_API_KEY` as a private secret.
-
 ### Any server with Docker
 
+The same image GitHub builds runs anywhere Docker does:
+
 ```bash
-docker compose up -d        # then open http://your-server:8000
+docker run -d -p 8000:7860 --restart unless-stopped ghcr.io/vansh-vaid/satquery:latest
+# then open http://your-server:8000
 ```
 
-Train the models first (`python run.py --setup-models`); they are built into the image from `checkpoints/`.
+To build it yourself instead, train the models first (`python run.py --setup-models`) and run
+`docker build -t satquery .`; the models are built into the image from `checkpoints/`.
 
 ### What the online version does to stay up
 

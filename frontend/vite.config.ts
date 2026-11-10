@@ -10,7 +10,10 @@ export default defineConfig({
     emptyOutDir: true,
     chunkSizeWarningLimit: 1200,
     rollupOptions: {
-      output: { manualChunks: { three: ["three", "@react-three/fiber"] } },
+      output: {
+        // keep the 3D runtime in its own cacheable chunk, shared by the landing page and the console
+        manualChunks: (id) => (/node_modules[\\/](three|@react-three)[\\/]/.test(id) ? "three" : undefined),
+      },
     },
   },
   server: { proxy: { "/api": "http://localhost:8000" } },
