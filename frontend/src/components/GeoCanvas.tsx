@@ -26,6 +26,9 @@ function defaultOn(o: Overlay): boolean {
   return /^grounded|^change mask|^fused: (water|built)/.test(o.title);
 }
 
+const MOD_LABEL: Record<string, string> = { sar: "Radar", multispectral: "Optical", optical_rgb: "Optical RGB" };
+const modLabel = (m: string) => MOD_LABEL[m] ?? m.replace(/_/g, " ");
+
 export default function GeoCanvas(p: Props) {
   const two = p.images.length === 2;
   const [baseA, setBaseA] = useState("");
@@ -192,7 +195,7 @@ export default function GeoCanvas(p: Props) {
             {showBoxes && p.boxes.map((b) => {
               const c = pixelToLatLon(bbox, (b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, p.width, p.height);
               return (
-                <div key={b.id} className={`callout ${p.highlighted.has(b.id) ? "hi" : ""}`}
+                <div key={b.id} className={`callout ${p.highlighted.has(b.id) ? "hi" : ""} ${b.y0 / p.height < 0.14 ? "inside" : ""}`}
                   style={{ left: `${(b.x0 / p.width) * 100}%`, top: `${(b.y0 / p.height) * 100}%`,
                            borderColor: BOX_COLOR[b.source] ?? "var(--box-ground)" }}>
                   <b>{b.label}</b>
@@ -214,8 +217,8 @@ export default function GeoCanvas(p: Props) {
             )}
             {two && (
               <>
-                <span className="corner-tag tl">{p.config === "bitemporal" ? `Before · ${p.images[0].acquired ?? ""}` : p.images[0].modality.replace("_", " ")}</span>
-                <span className="corner-tag tr">{p.config === "bitemporal" ? `After · ${p.images[1].acquired ?? ""}` : p.images[1].modality.replace("_", " ")}</span>
+                <span className="corner-tag tl">{p.config === "bitemporal" ? `Before · ${p.images[0].acquired ?? ""}` : modLabel(p.images[0].modality)}</span>
+                <span className="corner-tag tr">{p.config === "bitemporal" ? `After · ${p.images[1].acquired ?? ""}` : modLabel(p.images[1].modality)}</span>
               </>
             )}
             {cursor && (

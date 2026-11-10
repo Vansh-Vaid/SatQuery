@@ -24,9 +24,12 @@ export default function QueryDeck({ query, onQuery, onRun, chips, busy, disabled
           aria-label="Query" onChange={(e) => onQuery(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey || !e.shiftKey)) { e.preventDefault(); onRun(); } }} />
         <button className="execute" onClick={onRun} disabled={busy || disabled || !query.trim()}>
-          {busy ? "Analysing…" : "Analyse →"}
+          {busy ? <><span className="spin" aria-hidden="true" />Analysing</> : "Analyse →"}
         </button>
       </div>
+      <p className="deck-hint">
+        {disabled ? "Add an image or pick a demo scene first." : <><kbd>Enter</kbd> to analyse · <kbd>Shift</kbd>+<kbd>Enter</kbd> for a new line</>}
+      </p>
     </section>
   );
 }

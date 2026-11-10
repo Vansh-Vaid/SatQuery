@@ -99,16 +99,17 @@ def load_backbone(scene_ckpt: str):
     return {"body": m, "head": head}, np.array(state["mean"], np.float32), np.array(state["std"], np.float32)
 
 
-def build_model(vocab_size: int, hidden: int = 512, dropout: float = 0.3):
+def build_model(vocab_size: int, hidden: int = 512, dropout: float = 0.3, img_dim: int = IMG_DIM,
+                n_answers: int = len(ANSWERS)):
     """Image and question projected to a shared space, fused by elementwise product (Lobry et al. 2020)."""
     import torch.nn as nn
 
     class RSVQANet(nn.Module):
         def __init__(self):
             super().__init__()
-            self.img = nn.Sequential(nn.Linear(IMG_DIM, hidden), nn.Tanh(), nn.Dropout(dropout))
+            self.img = nn.Sequential(nn.Linear(img_dim, hidden), nn.Tanh(), nn.Dropout(dropout))
             self.q = nn.Sequential(nn.Linear(vocab_size, hidden), nn.Tanh(), nn.Dropout(dropout))
-            self.head = nn.Sequential(nn.Linear(hidden, 256), nn.ReLU(), nn.Dropout(dropout), nn.Linear(256, len(ANSWERS)))
+            self.head = nn.Sequential(nn.Linear(hidden, 256), nn.ReLU(), nn.Dropout(dropout), nn.Linear(256, n_answers))
 
         def forward(self, img, q):
             return self.head(self.img(img) * self.q(q))

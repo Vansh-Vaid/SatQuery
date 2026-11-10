@@ -28,7 +28,24 @@ def quantize_count(a: str) -> str | None:
     return "0" if n <= 0 else "1-10" if n <= 10 else "11-100" if n <= 100 else "101-1000" if n <= 1000 else ">1000"
 
 
+_CDVQA_TEXT = {"non-vegetated ground surface": "nvg_surface", "low vegetation": "low_vegetation"}
+
+
+def canonical_cdvqa(a: str) -> str:
+    """CDVQA labels vs SatQuery's readable answers: '0-10%' -> '0_to_10', '0%' -> '0'."""
+    a = normalize_answer(a)
+    a = _CDVQA_TEXT.get(a, a)
+    m = re.fullmatch(r"(\d+)\s*-\s*(\d+)\s*%?", a)
+    if m:
+        return f"{m.group(1)}_to_{m.group(2)}"
+    m = re.fullmatch(r"(\d+)\s*%", a)
+    return m.group(1) if m else a
+
+
 def vqa_correct(pred: str, gt: str, qtype: str | None = None) -> bool:
+    if qtype in {"change_or_not", "increase_or_not", "decrease_or_not", "change_ratio", "change_ratio_types",
+                 "change_to_what", "largest_change", "smallest_change"}:
+        return canonical_cdvqa(pred) == canonical_cdvqa(gt)
     if qtype == "count":
         qp, qg = quantize_count(pred), quantize_count(gt)
         return qp is not None and qp == qg

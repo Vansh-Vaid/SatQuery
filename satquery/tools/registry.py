@@ -8,6 +8,9 @@ from satquery.tools.algorithmic import (LandcoverOptical, LandcoverReasoner, Lan
                                         RegionGrounder)
 from satquery.tools.base import TASK_DESCRIPTIONS, TaskType, Tool
 from satquery.tools.change import ChangeDetector, ChangeQA, ChangeSemantics
+from satquery.tools.cdvqa import CDVQASpecialist
+from satquery.tools.hrground import HighResGrounder
+from satquery.tools.hrvqa import HighResVQA
 from satquery.tools.rsvqa import RSVQASpecialist
 from satquery.tools.scene import SceneClassifier
 from satquery.tools.vlm import RSVLM
@@ -51,6 +54,9 @@ def default_registry(vlm: RSVLM | None = None) -> Registry:
     return Registry([
         vlm or RSVLM(),
         RSVQASpecialist(),
+        HighResVQA(),
+        HighResGrounder(),
+        CDVQASpecialist(),
         SceneClassifier(),
         LandcoverOptical(),
         LandcoverSAR(),

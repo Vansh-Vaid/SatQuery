@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 
@@ -57,8 +58,20 @@ def _scale_box(b: list[float], w: int, h: int) -> list[float]:
 
 
 def vrsbench(root: Path) -> list[dict]:
+    """VRSBench eval files. Images are extracted once from Images_val.zip if needed.
+
+    Referring answers are written ``{<x1><y1><x2><y2>}`` on a 0-100 scale of the image (verified against
+    VRSBench_EVAL_referring.json, 2026-11-09); they are converted to pixel boxes.
+    """
+    import zipfile
+
     from PIL import Image
-    img_dir = next((root / d for d in ("Images_val", "images_val", "Images", "images") if (root / d).exists()), root)
+    img_dir = next((root / d for d in ("Images_val", "images_val", "Images", "images") if (root / d).exists()), None)
+    if img_dir is None and (root / "Images_val.zip").exists():
+        print("extracting Images_val.zip ...")
+        zipfile.ZipFile(root / "Images_val.zip").extractall(root)
+        img_dir = root / "Images_val"
+    img_dir = img_dir or root
     rows = []
     for name, task in (("VRSBench_EVAL_vqa.json", "vqa"), ("VRSBench_EVAL_Cap.json", "caption"),
                        ("VRSBench_EVAL_referring.json", "grounding")):
@@ -73,10 +86,15 @@ def vrsbench(root: Path) -> list[dict]:
                    "query": x.get("question") or "Describe the image in detail.", "answer": gt, "task": task,
                    "qtype": x.get("type", task), "bbox": None}
             if task == "grounding":
-                box = gt if isinstance(gt, list) else json.loads(str(gt).replace("{", "[").replace("}", "]"))
+                box = gt if isinstance(gt, list) else [float(v) for v in re.findall(r"-?\d+(?:\.\d+)?", str(gt))]
+                if len(box) < 4:
+                    continue
                 with Image.open(img) as im:
-                    row["bbox"] = _scale_box([float(v) for v in box[:4]], im.width, im.height)
+                    w, h = im.size
+                row["bbox"] = [box[0] / 100 * w, box[1] / 100 * h, box[2] / 100 * w, box[3] / 100 * h]
                 row["answer"] = None
+                row["obj_cls"] = x.get("obj_cls")
+                row["query"] = "Locate " + row["query"][0].lower() + row["query"][1:]   # VRSBench's [refer] task tag
             rows.append(row)
     return rows
 

@@ -31,7 +31,18 @@ const MORE_QUERIES: { q: string; mode: Mode }[] = [
   { q: "What did the water turn into?", mode: "bitemporal" },
   { q: "How much of the scene is water?", mode: "cross_modal" },
 ];
-const TAG: Record<Mode, string> = { single: "Single image", cross_modal: "Optical + radar", bitemporal: "Before & after" };
+// Held-out benchmark results (docs/TECHNICAL.md, "Measured results")
+const PROOF: { score: number; title: string; source: string; before?: number; ref?: number; note?: string }[] = [
+  { score: 95.7, title: "Recognising land use", source: "EuroSAT · 5,399 Sentinel-2 test images · 10 classes",
+    note: "93% on raw satellite files, loaded the way your uploads are" },
+  { score: 84.6, title: "Answering questions about one image", source: "RSVQA-LR · 10,004 test questions", before: 41.8 },
+  { score: 65.1, title: "Answering questions about change", source: "CDVQA · 6,000 questions on real aerial image pairs",
+    before: 18.7, ref: 67.7 },
+  { score: 54.0, title: "Answering questions about sharp aerial photos", source: "VRSBench · 37,409 questions about planes, ships, vehicles…",
+    before: 23.8 },
+];
+
+const TAG: Record<Mode, string> ={ single: "Single image", cross_modal: "Optical + radar", bitemporal: "Before & after" };
 
 function useTypewriter(items: string[], reduced: boolean) {
   const [i, setI] = useState(0);
@@ -183,7 +194,7 @@ export default function Landing() {
       <header className={`lp-nav ${scrolled ? "solid" : ""}`}>
         <a className="lp-brand" href="/" aria-label="SatQuery AI home"><Logo /><span>SatQuery</span><em>AI</em></a>
         <nav className="lp-nav-links" aria-label="Primary">
-          <a href="#seeing">Product</a><a href="#how">How it works</a><a href="/console">Console</a>
+          <a href="#seeing">Product</a><a href="#how">How it works</a><a href="#proof">Results</a><a href="/console">Console</a>
         </nav>
         <a className="lp-btn lp-btn-sm" href="/console">Open console</a>
       </header>
@@ -276,7 +287,7 @@ export default function Landing() {
             <ol className="lp-steps">
               {[
                 ["Checks your images", "Format, sensor type, map projection, overlap and dates are verified before anything runs. Bad inputs are stopped with the reason."],
-                ["Picks the right specialists", "Claude, or a rule planner when offline, routes the question to registered tools: an adapted vision-language model plus physical measurement tools."],
+                ["Picks the right specialists", "Claude, or a rule planner when offline, routes the question to registered tools: models trained on satellite imagery plus physical measurement tools."],
                 ["Answers with evidence", "Maps, boxes, a confidence score and a full trace of every tool and setting, exportable as PDF, GeoJSON or JSON."],
               ].map(([t, b], i) => (
                 <li key={t} data-reveal style={{ ["--d" as string]: `${i * 90}ms` }}>
@@ -287,6 +298,42 @@ export default function Landing() {
                 </li>
               ))}
             </ol>
+          </div>
+        </section>
+
+        <section id="proof" className="lp-band" aria-labelledby="proof-title">
+          <div className="lp-wrap">
+            <header className="lp-head lp-head-split">
+              <div>
+                <p className="lp-label" data-reveal>Measured, not claimed</p>
+                <h2 id="proof-title" data-reveal>Scored on test questions it never saw in training.</h2>
+              </div>
+              <p className="lp-sub" data-reveal>Every score comes from held-out test data. The grey bar shows the same
+                system before its trained models were added.</p>
+            </header>
+            <ol className="lp-proof">
+              {PROOF.map((p, i) => (
+                <li key={p.title} data-reveal style={{ ["--d" as string]: `${i * 90}ms` }}>
+                  <p className="lp-proof-n">{p.score}<span>%</span></p>
+                  <h3>{p.title}</h3>
+                  <p className="lp-proof-src">{p.source}</p>
+                  <div className="lp-bars" aria-hidden="true">
+                    <div className="lp-bar now"><span style={{ ["--w" as string]: `${p.score}%` }} /></div>
+                    {p.before != null && <div className="lp-bar before"><span style={{ ["--w" as string]: `${p.before}%` }} /></div>}
+                    {p.ref != null && <i className="lp-ref" style={{ left: `${p.ref}%` }} />}
+                  </div>
+                  <p className="lp-proof-foot">
+                    {p.before != null ? <>Before: <b>{p.before}%</b></> : p.note}
+                    {p.ref != null && <> · Benchmark authors' model: <b>{p.ref}%</b></>}
+                  </p>
+                </li>
+              ))}
+            </ol>
+            <p className="lp-proof-note" data-reveal>
+              Change questions are scored on 6,000 of the benchmark's test questions; the "before" scores for change and
+              aerial-photo questions come from stratified samples. Full method and per-question results are in
+              the <a href="https://github.com/Vansh-Vaid/SatQuery/blob/main/docs/TECHNICAL.md">technical reference</a>.
+            </p>
           </div>
         </section>
 
@@ -308,7 +355,7 @@ export default function Landing() {
         <div className="lp-wrap lp-foot-grid">
           <a className="lp-brand" href="/"><Logo /><span>SatQuery</span><em>AI</em></a>
           <p>An agentic vision-language assistant for multimodal remote-sensing analysis.</p>
-          <p className="lp-data">Coastlines: Natural Earth · Training data: BigEarthNet.txt (CDLA-Permissive-1.0)</p>
+          <p className="lp-data">Trained on EuroSAT, RSVQA-LR and CDVQA · Coastlines: Natural Earth</p>
         </div>
       </footer>
     </div>

@@ -40,6 +40,9 @@ class Settings:
     # --- EuroSAT-adapted scene classifier (trained by training/train_scene_classifier.py) -----
     scene_checkpoint: str = field(default_factory=lambda: os.getenv("SATQUERY_SCENE_CKPT", "checkpoints/scene_resnet18.pt"))
 
+    vrsbench_ground_checkpoint: str = field(default_factory=lambda: os.getenv("SATQUERY_VRSBENCH_GROUND_CKPT", "checkpoints/vrsbench_ground.pt"))
+    vrsbench_checkpoint: str = field(default_factory=lambda: os.getenv("SATQUERY_VRSBENCH_CKPT", "checkpoints/vrsbench_vqa.pt"))
+    cdvqa_checkpoint: str = field(default_factory=lambda: os.getenv("SATQUERY_CDVQA_CKPT", "checkpoints/cdvqa.pt"))
     rsvqa_checkpoint: str = field(default_factory=lambda: os.getenv("SATQUERY_RSVQA_CKPT", "checkpoints/rsvqa_lr.pt"))
 
     # --- Learned change detector (optional) ---------------------------------

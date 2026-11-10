@@ -71,6 +71,9 @@ class RSVQASpecialist(Tool):
         r = next((x for x in ctx.rasters if x.modality.is_optical), None)
         if r is None:
             return ToolResult(self.spec.name, "unsupported", notes=["Trained on optical imagery; no optical image supplied."])
+        if r.gsd_m and r.gsd_m < 3:
+            return ToolResult(self.spec.name, "unsupported",
+                              notes=[f"Trained on ~10 m Sentinel-2 scenes; this image is {r.gsd_m:g} m per pixel."])
         model, state, backbone, mean, std, metrics = _load()
         vocab = state["vocab"]
         known = [t for t in tokens(ctx.query) if t in vocab and "_" not in t]

@@ -177,6 +177,14 @@ class SatQueryAgent:
         if task in (TaskType.CHANGE_VQA, TaskType.CHANGE_DESCRIPTION):
             primary_name = "change_qa" if "change_qa" in ok else next(
                 (n for n in ("change_semantics", "change_detector") if n in ok), None)
+            cv = ok.get("cdvqa_vqa")
+            if task is TaskType.CHANGE_VQA and cv is not None:
+                primary_name = "cdvqa_vqa"     # trained change specialist; measured change evidence cross-checks it
+                a = cv.facts.get("short_answer", "")
+                b = ok["change_qa"].facts.get("short_answer", "") if "change_qa" in ok else ""
+                if a in ("yes", "no") and b in ("yes", "no"):
+                    notes.append("change specialist confirmed by measured change" if a == b else
+                                 f"change specialist ('{a}') and measured change ('{b}') disagree")
             boxes = ok["change_detector"].boxes if "change_detector" in ok else []
         elif task is TaskType.CROSS_MODAL:
             rq = ok.get("landcover_reasoner")
@@ -197,10 +205,16 @@ class SatQueryAgent:
                 if g is not None:
                     boxes += g.boxes
             else:
-                primary_name = "region_grounder" if g is not None else None
-                boxes = g.boxes if g is not None else []
+                hg = ok.get("hr_grounder")   # answers only on sub-metre / unknown-scale imagery
+                if hg is not None and (g is None or hg.facts.get("object_mentioned")):
+                    # a named object (vehicle, ship, bridge...) beats a land-cover word in the same expression
+                    primary_name, boxes = "hr_grounder", list(hg.boxes)
+                else:
+                    primary_name = "region_grounder" if g is not None else None
+                    boxes = g.boxes if g is not None else []
         elif task is TaskType.CAPTION:
-            primary_name = next((n for n in ("rs_vlm", "rs_scene_classifier", "landcover_reasoner") if n in ok), None)
+            # hr_vqa only answers on sub-metre imagery, where the EuroSAT classifier (10 m) is out of its domain
+            primary_name = next((n for n in ("rs_vlm", "hr_vqa", "rs_scene_classifier", "landcover_reasoner") if n in ok), None)
         else:  # VQA
             rq = ok.get("landcover_reasoner")
             if vlm is not None and rq is not None:
@@ -218,8 +232,11 @@ class SatQueryAgent:
             else:
                 sc = ok.get("rs_scene_classifier")
                 rv = ok.get("rsvqa_vqa")
+                hv = ok.get("hr_vqa")      # answers only on sub-metre / unknown-scale imagery
                 if vlm is not None:
                     primary_name = "rs_vlm"
+                elif hv is not None:
+                    primary_name = "hr_vqa"   # objects and layout in high-resolution aerial images (VRSBench-trained)
                 elif sc is not None and (sc.facts.get("question_type") == "land_use"
                                          or (sc.facts.get("scene_specific") and rv is None)):
                     # "what kind of area is this?", or a land-use class nothing else can answer
@@ -251,7 +268,8 @@ class SatQueryAgent:
         if any("disagree" in n for n in notes):
             conf *= 0.7
         elif any("confirmed" in n for n in notes):
-            other = ok["landcover_reasoner"].confidence or 0.5
+            xc = ok.get("change_qa") if primary_name == "cdvqa_vqa" else ok.get("landcover_reasoner")
+            other = (xc.confidence if xc is not None else None) or 0.5
             conf = 1 - (1 - conf) * (1 - 0.5 * other)
         if task is TaskType.CAPTION and primary_name != "landcover_reasoner" and "landcover_reasoner" in ok:
             answer += "\n\nMeasured composition: " + ok["landcover_reasoner"].answer

@@ -31,7 +31,9 @@ def load(row: dict):
 def predict_agent(agent, row):
     resp = agent.run(row["query"], load(row), "bitemporal" if row["task"] == "change_vqa" else None)
     boxes = [[b["x0"], b["y0"], b["x1"], b["y1"]] for b in resp.boxes]
-    return {"pred": resp.short_answer or resp.answer, "full": resp.answer, "boxes": boxes,
+    # a caption is the whole answer; for questions the short answer is what gets scored
+    pred = resp.answer if row["task"] == "caption" else (resp.short_answer or resp.answer)
+    return {"pred": pred, "full": resp.answer, "boxes": boxes,
             "confidence": resp.confidence, "tools": [s["tool"] for s in resp.trace.get("steps", [])]}
 
 
