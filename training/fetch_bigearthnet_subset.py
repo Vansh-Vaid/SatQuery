@@ -57,11 +57,12 @@ class Progress:
         return b
 
 
-def stream(kind: str, wanted: dict[str, list[str]], img_dir: Path) -> None:
+def stream(kind: str, wanted: dict[str, list[str]], img_dir: Path, deadline: float = float("inf")) -> None:
     """Stream one archive and render every patch folder whose name is in ``wanted``.
 
     ``wanted`` maps a folder name (the S2 patch id, or the S1 name) to the S2 patch ids whose
-    images it provides; output files are always named after the S2 patch id."""
+    images it provides; output files are always named after the S2 patch id. The stream stops at
+    ``deadline`` (a time.time() value); patches rendered so far are kept."""
     import requests
     import zstandard
 
@@ -97,6 +98,10 @@ def stream(kind: str, wanted: dict[str, list[str]], img_dir: Path) -> None:
                     if not todo:
                         print(f"{kind}: all needed patches rendered; stopping the stream early", flush=True)
                         return
+                    if time.time() >= deadline:
+                        print(f"{kind}: time limit reached with {len(todo)} patches still to render; "
+                              "keeping what is done", flush=True)
+                        return
                 if parent in todo:
                     band = Path(m.name).stem.rsplit("_", 1)[-1].upper()
                     if band in bands:
@@ -116,7 +121,12 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=13)
     ap.add_argument("--no-s1", action="store_true", help="optical only (skips the 54 GB radar archive)")
     ap.add_argument("--retries", type=int, default=3)
+    ap.add_argument("--time-limit-min", type=float, default=0,
+                    help="stop downloading after this many minutes and keep what is rendered (0 = no limit). "
+                         "Optical goes first; radar gets the time that is left. Rows without an optical image "
+                         "are skipped later, and rows without radar become single-image examples.")
     args = ap.parse_args()
+    deadline = time.time() + args.time_limit_min * 60 if args.time_limit_min else float("inf")
 
     import pandas as pd
 
@@ -135,14 +145,23 @@ def main() -> None:
         wanted["s1"] = s1
     for kind, w in wanted.items():
         for attempt in range(1, args.retries + 1):
+            if time.time() >= deadline:
+                print(f"{kind}: no time left; skipping", flush=True)
+                break
             try:
-                stream(kind, w, img_dir)
+                stream(kind, w, img_dir, deadline)
                 break
             except Exception as e:  # dropped connection: re-stream; finished patches are skipped
                 print(f"{kind}: stream failed ({type(e).__name__}: {e}); attempt {attempt}/{args.retries}", flush=True)
                 if attempt == args.retries:
+                    if args.time_limit_min:  # under a time budget, train on what arrived instead of failing
+                        print(f"{kind}: giving up on this archive; continuing with the patches rendered so far")
+                        break
                     raise
                 time.sleep(30)
+    for kind in wanted:
+        n = sum(1 for _ in img_dir.glob(f"*_{kind}.png"))
+        print(f"{kind}: {n} images rendered", flush=True)
     print("done. Next: python training/prepare_bigearthnet_txt.py --rendered with the same arguments")
 
 

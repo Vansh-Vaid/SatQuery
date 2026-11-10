@@ -55,6 +55,8 @@ def main() -> None:
     ap.add_argument("--mode", choices=["agent", "vlm"], default="agent")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("--time-limit-min", type=float, default=0,
+                    help="stop after this many minutes and score the examples done so far (0 = no limit)")
     args = ap.parse_args()
     rows = [json.loads(l) for l in args.data.open(encoding="utf-8") if l.strip()]
     if args.limit:
@@ -73,8 +75,14 @@ def main() -> None:
     acc = defaultdict(lambda: [0, 0])
     caps_p, caps_r, ious = [], [], defaultdict(list)
     t0 = time.time()
+    done = 0
     with (args.out / "predictions.jsonl").open("w", encoding="utf-8") as fh:
         for i, row in enumerate(rows):
+            if args.time_limit_min and (time.time() - t0) / 60 >= args.time_limit_min:
+                print(f"time limit of {args.time_limit_min:g} min reached after {i}/{len(rows)} examples; "
+                      "scoring those", flush=True)
+                break
+            done = i + 1
             try:
                 p = fn(runner, row)
             except Exception as e:  # keep going; count as wrong
@@ -100,7 +108,9 @@ def main() -> None:
             if (i + 1) % 50 == 0:
                 print(f"{i + 1}/{len(rows)}  {(time.time() - t0) / (i + 1):.2f}s/sample", flush=True)
 
-    metrics: dict = {"n": len(rows), "mode": args.mode, "data": str(args.data)}
+    metrics: dict = {"n": done, "mode": args.mode, "data": str(args.data)}
+    if done < len(rows):
+        metrics["stopped_early"] = f"time limit: scored {done} of {len(rows)} examples"
     if acc:
         metrics["vqa_accuracy"] = {k: {"acc": round(c / n, 4), "n": n} for k, (c, n) in sorted(acc.items())}
     if caps_p:
@@ -117,7 +127,7 @@ def main() -> None:
         metrics["grounding"] = {k: {"mIoU": round(sum(v) / len(v), 4), "Acc@0.5": round(sum(x >= 0.5 for x in v) / len(v), 4),
                                     "n": len(v)} for k, v in ious.items()}
     (args.out / "metrics.json").write_text(json.dumps(metrics, indent=2))
-    lines = [f"# SatQuery evaluation ({args.mode})", "", f"data: `{args.data}` · n = {len(rows)}", ""]
+    lines = [f"# SatQuery evaluation ({args.mode})", "", f"data: `{args.data}` · n = {done}", ""]
     for sect, vals in metrics.items():
         if isinstance(vals, dict):
             lines += [f"## {sect}", "", "| key | value |", "|---|---|"]
