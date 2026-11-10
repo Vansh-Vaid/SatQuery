@@ -173,6 +173,29 @@ Captions are scored on the agent's full answer (the caption), not the one-line U
 would otherwise be penalised by BLEU's brevity rule; scoring the summary made the new captions look worse
 than they are. The real fix for captions and small-object grounding is the vision-language model (D2).
 
+### D16. Deployment: one CPU container, free Hugging Face Space as the default host
+*Alternatives:*
+- Render, Railway or Fly free tiers: 256-512 MB of memory, below the 615 MB the app uses once warmed up.
+- Serverless: cold starts reload PyTorch and every model on each request.
+- Hosting the VLM: needs a paid GPU.
+
+*Why:* a free CPU Space has 2 vCPUs and 16 GB, builds the same Dockerfile that works on any server, and
+gives an HTTPS link. All the trained specialists are small CPU models (157 MB in total), so the full
+measured system runs there. The VLM stays optional behind `SATQUERY_VLM_BACKEND=remote`.
+
+Public-traffic guards, each covered by `tests/test_deploy.py`:
+- a per-IP rate limit;
+- a bounded number of concurrent analyses, with a 503 "busy" response instead of an unbounded queue;
+- upload size enforced while streaming, plus an early check on request-body size;
+- a cap on question length;
+- `nosniff` and referrer headers.
+
+The landing page runs three demo analyses for every visitor. Demo answers do not depend on the visitor, so
+they are cached, shared and pre-computed at startup. Without that, landing-page traffic alone would use up
+the two CPUs.
+
+Uploaded files are deleted after each request, and run traces are not written to disk in the image.
+
 ### D9. Synthetic Sentinel-1/2 scenes with known ground truth for tests and demos
 They let tests assert correctness (fractions, change IoU, directions), not just "it runs", and make the
 demo work offline. Real-data accuracy is measured by `eval/` on the named benchmarks.

@@ -7,6 +7,9 @@ Inputs
       --s2-root/--s1-root : the extracted GeoTIFF folders
                            (<root>/<tile>/<patch_id>/<patch_id>_B02.tif, ..._VV.tif)
       --lmdb              : the rico-hdl encoded LMDB (key -> safetensors band dict)
+      --rendered          : PNGs already rendered into <out>/images by
+                            training/fetch_bigearthnet_subset.py (streams only the needed
+                            patches from Zenodo; the route used on Kaggle)
 
 Output (--out)
   images/<patch_id>_s2.png, images/<patch_id>_s1.png   rendered exactly like inference
@@ -136,30 +139,47 @@ def grounding_target(output: str, label_hint: str = "") -> tuple[str, str]:
     return json.dumps(out), tag
 
 
+COLUMNS = ["ID", "s1_name", "patch_id", "input", "output", "type", "category", "split"]
+
+
+def load_annotations(parquet: str | None):
+    import pandas as pd
+    if parquet is None:
+        from huggingface_hub import hf_hub_download
+        parquet = hf_hub_download("BIFOLD-BigEarthNetv2-0/BigEarthNet.txt", "BigEarthNet.txt.parquet", repo_type="dataset")
+    return pd.read_parquet(parquet, columns=COLUMNS)
+
+
+def select_rows(df, split: str, per_type: int, bench_per_type: int, seed: int):
+    """The annotations used for one split. Shared with fetch_bigearthnet_subset.py, so both pick the same rows."""
+    part = df[df["split"] == split]
+    cap = bench_per_type if split == "bench" else per_type
+    if cap and len(part):
+        import pandas as pd
+        part = pd.concat([g.sample(min(len(g), cap), random_state=seed) for _, g in part.groupby("type")])
+    return part
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--parquet", default=None, help="local BigEarthNet.txt.parquet (downloaded from HF if omitted)")
     ap.add_argument("--s2-root", type=Path)
     ap.add_argument("--s1-root", type=Path)
     ap.add_argument("--lmdb", type=Path)
+    ap.add_argument("--rendered", action="store_true", help="use PNGs already in <out>/images")
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--splits", nargs="+", default=["train", "validation", "bench"])
-    ap.add_argument("--per-type", type=int, default=6000, help="max samples per (split, type); bench is kept whole")
+    ap.add_argument("--per-type", type=int, default=6000, help="max samples per (split, type), except bench")
+    ap.add_argument("--bench-per-type", type=int, default=0, help="max bench samples per type (0 = keep bench whole)")
     ap.add_argument("--single-frac", type=float, default=0.3, help="fraction of samples with the S2 image only")
     ap.add_argument("--seed", type=int, default=13)
     args = ap.parse_args()
-    if not args.lmdb and not args.s2_root:
-        ap.error("give --lmdb or --s2-root (and optionally --s1-root)")
+    if not (args.lmdb or args.s2_root or args.rendered):
+        ap.error("give --rendered, --lmdb or --s2-root (and optionally --s1-root)")
 
-    import pandas as pd
-
-    pq = args.parquet
-    if pq is None:
-        from huggingface_hub import hf_hub_download
-        pq = hf_hub_download("BIFOLD-BigEarthNetv2-0/BigEarthNet.txt", "BigEarthNet.txt.parquet", repo_type="dataset")
-    df = pd.read_parquet(pq, columns=["ID", "s1_name", "patch_id", "input", "output", "type", "category", "split"])
+    df = load_annotations(args.parquet)
     print(df.groupby(["split", "type"]).size().to_string())
-    reader = LMDBReader(args.lmdb) if args.lmdb else FolderReader(args.s2_root, args.s1_root)
+    reader = None if args.rendered else LMDBReader(args.lmdb) if args.lmdb else FolderReader(args.s2_root, args.s1_root)
     rng = random.Random(args.seed)
     img_dir = args.out / "images"
     img_dir.mkdir(parents=True, exist_ok=True)
@@ -168,6 +188,10 @@ def main() -> None:
 
     def images_for(patch_id: str, s1_name: str) -> tuple[str | None, str | None]:
         if patch_id in rendered:
+            return rendered[patch_id]
+        if reader is None:  # pre-rendered by fetch_bigearthnet_subset.py
+            got = [img_dir / f"{patch_id}_{k}.png" for k in ("s2", "s1")]
+            rendered[patch_id] = tuple(str(q.relative_to(args.out)) if q.exists() else None for q in got)
             return rendered[patch_id]
         s2p = s1p = None
         b2 = reader.s2_bands(patch_id)
@@ -183,10 +207,7 @@ def main() -> None:
         return rendered[patch_id]
 
     for split in args.splits:
-        part = df[df["split"] == split]
-        if split != "bench" and args.per_type:
-            part = part.groupby("type", group_keys=False).apply(
-                lambda g: g.sample(min(len(g), args.per_type), random_state=args.seed))
+        part = select_rows(df, split, args.per_type, args.bench_per_type, args.seed)
         n_ok = n_skip = 0
         with (args.out / f"{split}.jsonl").open("w", encoding="utf-8") as fh:
             for row in part.itertuples(index=False):

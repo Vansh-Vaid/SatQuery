@@ -98,6 +98,12 @@ It downloads about 12 GB, so it is kept separate:
 python run.py --setup-highres
 ```
 
+The **large vision-language model** (free-form answers, written captions, optical + radar together) needs a
+graphics card. You can train it for free on Kaggle with
+[`kaggle/satquery_vlm.ipynb`](kaggle/satquery_vlm.ipynb): upload it to Kaggle, turn on a GPU and the
+internet, and click **Save & Run All**. It runs for up to 12 hours on its own and gives you a zip file with
+the trained model and its scores. The steps are at the top of the notebook.
+
 ---
 
 ## Using the app
@@ -182,7 +188,8 @@ with their own model.
 Being honest about the limits:
 
 - **Free-form questions** ("what is next to the lake?") are answered weakly. That needs a larger
-  vision-language model, which has to be trained on a graphics card (the training code is included).
+  vision-language model, which has to be trained on a graphics card (a ready-to-run Kaggle notebook is
+  included; see Get started).
 - **Captions** are short sentences built from the models' own answers about the image (setting, main
   object, how many, where) plus the measured land cover. They are not written freely.
 - **Object boxes** in sharp aerial photos are approximate: right about 1 time in 7, mostly for large
@@ -193,6 +200,53 @@ Being honest about the limits:
 - **Optical + radar analysis** has been tested on simulated images with known answers, not yet on real
   image pairs.
 - Confidence scores are rule-based estimates, not calibrated probabilities.
+
+---
+
+## Put it online
+
+SatQuery runs as a website anyone can open. It needs about 0.6 GB of memory and no graphics card.
+
+### Easiest: a free Hugging Face Space (about 10 minutes)
+
+You get a public link like `https://your-name-satquery.hf.space`.
+
+1. Make a free account at [huggingface.co](https://huggingface.co), then create a token with **Write**
+   access at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens).
+2. In the SatQuery folder, log in (paste the token when asked):
+   ```bash
+   pip install huggingface_hub
+   hf auth login
+   ```
+3. Deploy:
+   ```bash
+   python scripts/deploy_hf_space.py
+   ```
+   It uploads the app and your trained models (about 160 MB), then prints your link. The first build takes
+   5-10 minutes. Run the same command again whenever you want to update the live site.
+
+Options: `--private` (only you can open it), `--space name/other-name`, and `--with-claude`, which stores
+your `ANTHROPIC_API_KEY` as a private secret so the Claude planner works online.
+
+### Any server with Docker
+
+```bash
+docker compose up -d        # then open http://your-server:8000
+```
+
+Train the models first (`python run.py --setup-models`); they are built into the image from `checkpoints/`.
+
+### What the online version does to stay up
+
+- **Fair use:** each visitor can run 20 analyses a minute, and 2 analyses run at once. When the server is
+  busy, people see "try again in a minute" instead of waiting forever.
+- **Fast landing page:** the demo answers are worked out once when the server starts and shared with every
+  visitor.
+- **Size limits:** 100 MB per image and 1,000 characters per question.
+- **Privacy:** uploaded images are deleted as soon as the answer is ready. Reports stay in memory for the
+  last 100 analyses and are never written to disk.
+
+All limits can be changed with environment variables (see [docs/TECHNICAL.md](docs/TECHNICAL.md)).
 
 ---
 

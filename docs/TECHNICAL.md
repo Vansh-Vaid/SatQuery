@@ -140,6 +140,31 @@ Tests: `python -m pytest -q` (CPU, ~30 s). VLM plumbing smoke test (tiny random 
 | `SATQUERY_VLM_ADAPTER` | – | path / HF id of the BigEarthNet.txt LoRA adapter |
 | `SATQUERY_VLM_ENDPOINT` | – | URL of `scripts/serve_vlm.py` when backend is `remote` |
 | `SATQUERY_CHANGE_CKPT` | – | Siamese U-Net checkpoint (enables learned change detection) |
+| `SATQUERY_RATE_LIMIT` | `0` (image: `20`) | analyses + input checks per client IP per minute; `0` = unlimited |
+| `SATQUERY_MAX_CONCURRENT` | `2` | analyses running at once; others wait up to `SATQUERY_QUEUE_TIMEOUT` |
+| `SATQUERY_QUEUE_TIMEOUT` | `60` | seconds a request waits for a free slot before a 503 "busy" |
+| `SATQUERY_MAX_UPLOAD_MB` | `200` (image: `100`) | per image; enforced while streaming, plus a body-size check |
+| `SATQUERY_MAX_QUERY_CHARS` | `1000` | longest accepted question |
+| `SATQUERY_PERSIST_RUNS` | `1` (image: `0`) | write each run's trace to `SATQUERY_RUN_DIR` |
+| `SATQUERY_WARM_UP` | `1` | load the models and pre-compute the landing demos at startup |
+| `PORT` / `FORWARDED_ALLOW_IPS` | `7860` / `*` | Docker image only: listen port; proxies trusted for client IPs |
+
+### Deployment
+
+`Dockerfile` builds a CPU image: CPU-only PyTorch, the ImageNet weights fetched at build time, and the
+trained checkpoints baked in from `checkpoints/`. It runs one uvicorn process as a non-root user (uid 1000),
+with a health check on `/api/health`. Measured locally in production mode:
+- warm-up takes 9.9 s;
+- a cached landing demo answers in 0.06 s;
+- an uploaded analysis takes about 0.3 s;
+- memory is 615 MB after warm-up.
+
+Deploy routes:
+- `python scripts/deploy_hf_space.py` (Hugging Face Space, one commit; `--dry-run` lists the files);
+- `docker compose up -d` (any server).
+
+One process is deliberate: the rate limiter, the demo cache and the report store are in memory. To scale
+out, move them to Redis and run several replicas behind a load balancer.
 
 The Claude planner uses structured outputs (JSON schema whose tool enum *is* the registry), server-side
 refusal fallbacks (`fallbacks: "default"`), prompt caching of the registry prompt, and falls back to the

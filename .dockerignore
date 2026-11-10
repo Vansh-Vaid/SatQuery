@@ -1,0 +1,18 @@
+# keep the image small: training data, results and dev tooling are not needed to serve the app
+.git
+.venv
+**/__pycache__
+**/*.pyc
+.pytest_cache
+*.log
+.env
+data/
+runs/
+runs_*/
+eval/
+training/
+kaggle/
+tests/
+docs/
+frontend/
+satquery_ai_*.md

@@ -69,6 +69,9 @@ def main() -> None:
     ap.add_argument("--val-limit", type=int, default=300)
     ap.add_argument("--eval-every", type=int, default=200, help="optimizer steps")
     ap.add_argument("--tune-merger", action="store_true", help="also train the vision-language merger")
+    ap.add_argument("--time-limit-min", type=float, default=0,
+                    help="stop (after a final evaluation and save) once this many minutes have passed; "
+                         "keeps a run inside a Kaggle/Colab session limit")
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
 
@@ -147,6 +150,9 @@ def main() -> None:
             rec = {"step": step, "loss": round(run_loss, 4), "lr": sched.get_last_lr()[0],
                    "elapsed_min": round((time.time() - t0) / 60, 1)}
             run_loss = 0.0
+            if args.time_limit_min and (time.time() - t0) / 60 >= args.time_limit_min and step < total:
+                print(f"time limit of {args.time_limit_min:g} min reached at step {step}/{total}; finishing")
+                total = step
             if step % args.eval_every == 0 or step == total:
                 if val:
                     rec["val_loss"] = round(run_eval(), 4)

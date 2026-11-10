@@ -52,9 +52,21 @@ class Settings:
     max_upload_mb: int = field(default_factory=lambda: int(os.getenv("SATQUERY_MAX_UPLOAD_MB", "200")))
     max_pixels: int = field(default_factory=lambda: int(os.getenv("SATQUERY_MAX_PIXELS", str(4096 * 4096))))
     allow_benchmark_png: bool = field(default_factory=lambda: _env_bool("SATQUERY_ALLOW_PNG", True))
+    max_query_chars: int = field(default_factory=lambda: int(os.getenv("SATQUERY_MAX_QUERY_CHARS", "1000")))
+
+    # --- Public deployment ------------------------------------------------------
+    # analyses running at once (each uses a full CPU core and some memory); further requests wait up to
+    # queue_timeout_s, then get "busy, try again" instead of piling up
+    max_concurrent: int = field(default_factory=lambda: int(os.getenv("SATQUERY_MAX_CONCURRENT", "2")))
+    queue_timeout_s: float = field(default_factory=lambda: float(os.getenv("SATQUERY_QUEUE_TIMEOUT", "60")))
+    # analyses per client IP per minute (0 = unlimited)
+    rate_limit_per_min: int = field(default_factory=lambda: int(os.getenv("SATQUERY_RATE_LIMIT", "0")))
 
     # --- Storage ---------------------------------------------------------------
     run_dir: Path = field(default_factory=lambda: Path(os.getenv("SATQUERY_RUN_DIR", "runs")))
+    persist_runs: bool = field(default_factory=lambda: _env_bool("SATQUERY_PERSIST_RUNS", True))
+    # load the trained models in the background at startup, so the first request is fast
+    warm_up: bool = field(default_factory=lambda: _env_bool("SATQUERY_WARM_UP", True))
 
 
 settings = Settings()
