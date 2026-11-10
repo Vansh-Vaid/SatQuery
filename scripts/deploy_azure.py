@@ -42,9 +42,28 @@ def az(*args: str, capture: bool = False, check: bool = True) -> str:
     return (res.stdout or "").strip() if res.returncode == 0 else ""
 
 
+def newest_image(repo: str, image: str) -> str:
+    """ghcr image tagged with the commit of the newest successful GitHub build (Azure caches ':latest')."""
+    import json
+    import urllib.request
+
+    url = (f"https://api.github.com/repos/{repo}/actions/workflows/build-image.yml/runs"
+           "?status=success&branch=main&per_page=1")
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "satquery-deploy"}),
+                                    timeout=30) as r:
+            runs = json.load(r)["workflow_runs"]
+    except Exception as exc:  # pragma: no cover - network
+        sys.exit(f"Could not ask GitHub for the newest build ({exc}). Pass --image explicitly.")
+    if not runs:
+        sys.exit("No successful 'Build app image' run on GitHub yet. Push to main or run it in the Actions tab.")
+    return f"{image}:{runs[0]['head_sha']}"
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--image", default="ghcr.io/vansh-vaid/satquery:latest")
+    ap.add_argument("--repo", default="Vansh-Vaid/SatQuery", help="GitHub repo whose Actions build the image")
+    ap.add_argument("--image", help="full image reference (default: newest successful build of --repo)")
     ap.add_argument("--name", default="satquery")
     ap.add_argument("--resource-group", default="satquery-rg")
     ap.add_argument("--environment", default="satquery-env")
@@ -55,13 +74,16 @@ def main() -> int:
     args = ap.parse_args()
 
     rg, name = args.resource_group, args.name
+    if not args.image:
+        args.image = newest_image(args.repo, f"ghcr.io/{args.repo.split('/')[0].lower()}/satquery")
     exists = az("containerapp", "show", "-n", name, "-g", rg, "--query", "name", "-o", "tsv",
                 capture=True, check=False)
     if exists:
         print(f"Updating {name} to the newest {args.image} ...")
-        # a new revision suffix forces Azure to pull the image again even though the tag is the same
+        # changing an env var creates a new revision, which pulls the image again even though the tag is the same
+        # (revision suffixes are not allowed on "express" environments)
         az("containerapp", "update", "-n", name, "-g", rg, "--image", args.image,
-           "--revision-suffix", time.strftime("r%m%d%H%M%S"), "--output", "none")
+           "--set-env-vars", f"SATQUERY_DEPLOYED_AT={time.strftime('%Y%m%d%H%M%S')}", "--output", "none")
     else:
         if not az("group", "exists", "-n", rg, capture=True) == "true":
             az("group", "create", "-n", rg, "-l", args.location, "--output", "none")

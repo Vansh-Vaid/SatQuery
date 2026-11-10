@@ -173,15 +173,23 @@ Captions are scored on the agent's full answer (the caption), not the one-line U
 would otherwise be penalised by BLEU's brevity rule; scoring the summary made the new captions look worse
 than they are. The real fix for captions and small-object grounding is the vision-language model (D2).
 
-### D16. Deployment: one CPU container, free Hugging Face Space as the default host
+### D16. Deployment: one CPU container; GitHub Actions builds it, Azure Container Apps runs it
 *Alternatives:*
 - Render, Railway or Fly free tiers: 256-512 MB of memory, below the 615 MB the app uses once warmed up.
-- Serverless: cold starts reload PyTorch and every model on each request.
+- Hugging Face Space: the first plan. Docker Spaces now need a PRO subscription (the API returned 402).
+- Azure building the image itself (`az containerapp up --source`): Azure for Students blocks ACR Tasks
+  (`TasksOperationsNotAllowed`).
+- Azure App Service B1: no build step needed, but it is always on (about $13 a month).
 - Hosting the VLM: needs a paid GPU.
 
-*Why:* a free CPU Space has 2 vCPUs and 16 GB, builds the same Dockerfile that works on any server, and
-gives an HTTPS link. All the trained specialists are small CPU models (157 MB in total), so the full
-measured system runs there. The VLM stays optional behind `SATQUERY_VLM_BACKEND=remote`.
+*Why:*
+- GitHub's free runners build the same Dockerfile and publish it to GHCR at no cost. The models come
+  from a release asset, because they are not in git.
+- Container Apps runs the image with 1 vCPU / 2 GiB and scales to zero, so an idle demo costs close to
+  nothing on student credit. The trade-off is a cold start of about a minute.
+- All the trained specialists are small CPU models (157 MB in total), so the full measured system runs
+  there.
+- The VLM stays optional behind `SATQUERY_VLM_BACKEND=remote`.
 
 Public-traffic guards, each covered by `tests/test_deploy.py`:
 - a per-IP rate limit;

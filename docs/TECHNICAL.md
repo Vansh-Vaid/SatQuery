@@ -160,8 +160,22 @@ with a health check on `/api/health`. Measured locally in production mode:
 - memory is 615 MB after warm-up.
 
 Deploy routes:
-- `python scripts/deploy_hf_space.py` (Hugging Face Space, one commit; `--dry-run` lists the files);
+- **Live demo:** GitHub Actions (`.github/workflows/build-image.yml`) builds the image on every push to
+  `main`. It pulls the checkpoints from the `models-v1` release and publishes
+  `ghcr.io/vansh-vaid/satquery:{latest,<sha>}`, a public package. Then `python scripts/deploy_azure.py`
+  creates or updates an Azure Container App with 1 vCPU / 2 GiB and 0-1 replicas (scales to zero) in
+  `koreacentral`.
+  - The script deploys the `<sha>` tag of the newest successful build, because Azure keeps a cached copy
+    of `:latest`.
+  - It forces a new revision through an env var, because express environments reject revision suffixes.
+  - Measured on the live app: demo analyses answer in about 1.5 s.
+- `python scripts/deploy_hf_space.py` (Hugging Face Space). Docker Spaces now need HF PRO; the free tier
+  returns 402.
 - `docker compose up -d` (any server).
+
+The build runs `import rasterio, cv2, torch, ...` so that a missing system library fails the build, not
+the live app. The first live deploy failed this way: `python:3.11-slim` no longer ships `libexpat1`,
+which the rasterio wheel's GDAL needs.
 
 One process is deliberate: the rate limiter, the demo cache and the report store are in memory. To scale
 out, move them to Redis and run several replicas behind a load balancer.

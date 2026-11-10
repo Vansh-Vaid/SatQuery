@@ -211,26 +211,41 @@ Being honest about the limits:
 
 SatQuery runs as a website anyone can open. It needs about 0.6 GB of memory and no graphics card.
 
-### Easiest: a free Hugging Face Space (about 10 minutes)
+**Live demo:** https://satquery.happysky-a511d77c.koreacentral.azurecontainerapps.io (it switches off when
+nobody is using it, so the first visit after a pause takes about a minute).
 
-You get a public link like `https://your-name-satquery.hf.space`.
+### How the live demo is hosted: GitHub builds it, Azure runs it
 
-1. Make a free account at [huggingface.co](https://huggingface.co), then create a token with **Write**
-   access at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens).
-2. In the SatQuery folder, log in (paste the token when asked):
+1. **GitHub builds the app** for free on every push to `main`
+   ([`.github/workflows/build-image.yml`](.github/workflows/build-image.yml)). The trained models are not
+   in git, so the build downloads them from the `models-v1`
+   [release](https://github.com/Vansh-Vaid/SatQuery/releases/tag/models-v1). The finished app is
+   published as `ghcr.io/vansh-vaid/satquery`.
+2. **Azure Container Apps runs it** (an Azure for Students subscription is enough). One time, install the
+   Azure CLI and log in:
    ```bash
-   pip install huggingface_hub
-   hf auth login
+   winget install -e --id Microsoft.AzureCLI      # then open a new terminal
+   az login
    ```
-3. Deploy:
+   Then, after each successful GitHub build:
    ```bash
-   python scripts/deploy_hf_space.py
+   python scripts/deploy_azure.py
    ```
-   It uploads the app and your trained models (about 160 MB), then prints your link. The first build takes
-   5-10 minutes. Run the same command again whenever you want to update the live site.
+   It starts (or updates) the app with 1 CPU and 2 GB and prints the link. The app switches off when
+   idle, so it uses very little credit. To remove everything: `az group delete --name satquery-rg`.
 
-Options: `--private` (only you can open it), `--space name/other-name`, and `--with-claude`, which stores
-your `ANTHROPIC_API_KEY` as a private secret so the Claude planner works online.
+If you retrain a model, upload the new files to the release (`gh release upload models-v1
+checkpoints/*.pt checkpoints/*.json --clobber`), then run the build again from the **Actions** tab.
+
+Azure for Students only allows some regions (the script uses `koreacentral`; check yours with
+`az policy assignment list`) and does not allow Azure's own build service, which is why GitHub builds the
+app.
+
+### Hugging Face Space (needs a paid PRO account)
+
+Hugging Face now charges for Docker Spaces. With PRO, `python scripts/deploy_hf_space.py` uploads the app
+and models and prints a `*.hf.space` link. Options: `--private`, `--space name/other-name`, and
+`--with-claude`, which stores your `ANTHROPIC_API_KEY` as a private secret.
 
 ### Any server with Docker
 
