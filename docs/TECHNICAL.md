@@ -24,7 +24,7 @@ pair**, ask a question in plain English, and SatQuery:
 | Single-image VQA (mandatory) | `rsvqa_vqa` (trained: presence, comparison, count, rural/urban), `rs_scene_classifier` (land-use questions), `landcover_reasoner` (measured cross-check), `rs_vlm` when a VLM is configured (free-form) |
 | + captioning **or** grounding | **Both**: `rs_vlm` captioning and box grounding; `region_grounder` mask + box grounding (works without the VLM); VLM boxes are verified against land-cover evidence |
 | Change description / change-VQA on a bi-temporal pair | `change_detector` (normalised CVA / SAR log-ratio / optional learned Siamese U-Net) → `change_semantics` (from→to transitions) → `change_qa` (yes/no, increase/decrease/unchanged, ratio, largest change, "what did X become", where, description) + `cdvqa_vqa` (trained on CDVQA; primary for change questions on optical pairs, cross-checked by `change_qa`); change map + magnitude heatmap |
-| Optical–SAR complementary extraction | `landcover_optical` + `landcover_sar` → `optical_sar_fusion` (class-weighted decision fusion, SAR fills cloud gaps, per-class cross-sensor agreement, disagreement map); `rs_vlm` reads both images jointly |
+| Optical–SAR complementary extraction | `landcover_optical` + `landcover_sar` → `optical_sar_fusion` (class-weighted decision fusion, SAR fills cloud gaps, per-class cross-sensor agreement, disagreement map); `rs_vlm` reads both images jointly. **Tested on 6 real Sentinel-2 + Sentinel-1 pairs:** 79.9% pixel accuracy fused vs 60.9% optical / 74.0% SAR (`eval/real_pair_test.py`) |
 | Agentic orchestration | `satquery/agent/`: planner (Claude `claude-opus-5-5` with structured JSON limited to the registry, or rules) → `validate_plan` (unknown/incompatible/unavailable tools dropped, dependencies auto-inserted, undeclared params rejected, values clipped) → executor → integrator |
 | Input checking | `satquery/imagery/validate.py`: per-check pass/warn/fail, chronological reordering, reprojection to a common grid, footprint IoU, joint valid-pixel coverage |
 | Formats | GeoTIFF/TIFF (any band count, uint8/uint16/float, linear or dB SAR); PNG/JPEG accepted for benchmark images with an explicit warning |
@@ -229,6 +229,8 @@ measure the adaptation gain); `--mode agent` measures the full system.
 | Full agent on VRSBench VQA | stratified 600-question sample (50 per type) | **58.0%** (was 23.8% before `hr_vqa`) |
 | `hr_grounder` (referring-expression boxes) | VRSBench referring eval set, 16,159 expressions | **14.5%** Acc@0.5, mean IoU 0.21; ground-track field 28.5%, tennis court 25.9%, airplane 23.8%, vehicle 0.7%. Full agent on a 250-expression sample: 14.8% (was 0%) |
 | Captions on VRSBench | 150-image sample, full answer vs reference | BLEU-1 0.173, BLEU-4 0.038, ROUGE-L 0.136 (was 0.132 / 0.031 / 0.109) |
+| Optical-SAR land cover on real pairs (`eval/real_pair_test.py`) | 6 sites × 6 km (Rotterdam, Geneva, Cairo, Hyderabad, Sacramento, Dhaka under 44% cloud); Sentinel-2 L2A + Sentinel-1 RTC 0-3 days apart, from Planetary Computer; ESA WorldCover 2021 as reference; per-pixel, 4 classes | mean pixel accuracy: `optical_sar_fusion` **79.9%**, `landcover_sar` 74.0%, `landcover_optical` 60.9%. Macro-F1 0.718 / 0.616 / 0.645. Mean IoU fused: water 0.73, built-up 0.72, vegetation 0.50, bare soil 0.03. Under cloud (Dhaka, ESA SCL mask): fused 77.7%, SAR 76.6%, optical 35.0%. Fusion beats both single sensors on 5 of 6 sites; on Cairo SAR alone is higher (84.2% vs 81.7%) |
+| Full agent on the same pairs | 1 cross-modal question per site | runs `landcover_optical → landcover_sar → optical_sar_fusion → region_grounder → landcover_reasoner`; status ok on 6/6; confidence "medium" on clear sites, "low" on Dhaka; about 3 s per question on a laptop CPU |
 
 ```bash
 python training/train_scene_classifier.py --data data/eurosat        # ~18 min CPU
@@ -257,8 +259,14 @@ reaches 65.1% with frozen EuroSAT features, trained on 437 pairs, scored on a 6,
 same test set. Per type it is within a few points of their ResNet-18 everywhere. The subset is not the full
 test set, so compare with care.
 
-**Not yet run:** the BigEarthNet.txt VLM fine-tune (needs a GPU). The optical-SAR tools are
-verified on synthetic Sentinel-1/2 scenes with known ground truth, not yet on real co-registered pairs.
+Real optical-SAR pairs: `python eval/real_pair_test.py` (about 10 minutes, about 100 MB download, no
+account). WorldCover is a 2021 map scored against 2023 images, and its "built-up" class covers whole city
+blocks including street trees, so the absolute numbers are a lower bound. The comparison between optical,
+SAR and fused on the same pixels is the meaningful result. The test found one real-data failure, now fixed
+(D17): ESA's L2A correction over hazy Cairo pushed the Nile to near-zero visible/NIR reflectance, so MNDWI
+went negative and optical water IoU was 0.01. A dark-pixel NDWI fallback raised it to 0.65.
+
+**Not yet run:** the BigEarthNet.txt VLM fine-tune (Kaggle notebook ready, `kaggle/satquery_vlm.ipynb`).
 
 ## Repository layout
 

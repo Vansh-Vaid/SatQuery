@@ -196,6 +196,31 @@ the two CPUs.
 
 Uploaded files are deleted after each request, and run traces are not written to disk in the image.
 
+### D17. Real optical-SAR test: Planetary Computer pairs scored against ESA WorldCover
+*Alternatives:*
+- BigEarthNet S1+S2 patches: 117 GB of archives, and the labels are per patch, not per pixel.
+- SEN12MS: per-pixel labels, but they are coarse MODIS land cover (500 m).
+- Hand-labelling: too slow, and not reproducible.
+
+*Why:* Planetary Computer serves Sentinel-2 L2A, terrain-corrected Sentinel-1 RTC and WorldCover 10 m with
+no account. Windowed reads fetch only a 6 km box per site (about 100 MB in total). Six sites cover
+temperate, desert, tropical and monsoon cities, with one deliberately cloudy scene. The pairs are saved as
+plain GeoTIFFs and go through the same loader and validation as a user upload.
+
+*Result:* fusion (79.9%) beats optical (60.9%) and SAR (74.0%) on average, and keeps 77.7% under cloud,
+where optical alone gets 35%. This is the evidence for D8's class weights on real data.
+
+*Fix the test found:* over the hazy Nile, Sen2Cor drove visible/NIR reflectance to about 0 while SWIR
+stayed about 0.02, so MNDWI < 0. `_classify_ms` now also accepts NDWI > 0.2 for dark pixels (B08 < 0.05,
+B11 < 0.06). Optical water IoU on Cairo went from 0.01 to 0.65, with no loss on other sites. The thresholds
+come from water physics, not from a search on these sites.
+
+*Known gaps:*
+- The optical cloud rule flags bright roofs and sand as cloud on clear days (2.6-6.4%). The fusion then
+  reports SAR "filling cloud" that is not there.
+- Bare soil is almost never right: under 1% of WorldCover in these cities, and confused with desert-coloured
+  roofs in Cairo.
+
 ### D9. Synthetic Sentinel-1/2 scenes with known ground truth for tests and demos
 They let tests assert correctness (fractions, change IoU, directions), not just "it runs", and make the
 demo work offline. Real-data accuracy is measured by `eval/` on the named benchmarks.

@@ -169,7 +169,6 @@ Everything below was measured on test data the models never saw during training.
 | – "Are there more X than Y?" questions | 89.2% |
 | – "Is this rural or urban?" | 88.0% |
 | – "How many ...?" (answered as a range, e.g. *between 11 and 100*) | 72.0% |
-
 | Answering questions about **what changed** between two real aerial images (CDVQA benchmark, 6,000 questions) | **65.1%** correct |
 | – "Did X change / increase / decrease?" | 69–79% |
 | – "What did X change into?" | 55.0% |
@@ -178,6 +177,10 @@ Everything below was measured on test data the models never saw during training.
 | – "Is there a ...?" | 87.5% |
 | – "Where is the ...?" (top-left, bottom-right, ...) | 37.1% |
 | Drawing a box around a described object in a sharp aerial photo (VRSBench, 16,159 descriptions) | **14.5%** correct |
+| Mapping water, vegetation and built-up land on **real optical + radar pairs** (6 cities, about 2 million pixels, checked against the ESA WorldCover map) | **80%** of pixels correct with both images (optical alone 61%, radar alone 74%) |
+| – under monsoon clouds (Dhaka) | 78% with both images (optical alone 35%) |
+
+![Optical + radar test on six real cities](docs/images/real_pairs.jpg)
 
 Before the trained models were added, the single-image test scored 41.8%, the change test 18.7% and the
 sharp-photo test 23.8%, about as good as guessing. Object boxes were never found at all (0%). For comparison, the research team that created the change benchmark reported 67.7%
@@ -197,8 +200,9 @@ Being honest about the limits:
   low confidence.
 - **Change questions** are right about two times in three on real image pairs (65%, see above). The
   hardest are "what percentage changed?" and "what is the smallest change?".
-- **Optical + radar analysis** has been tested on simulated images with known answers, not yet on real
-  image pairs.
+- **Optical + radar maps** are right for about 4 pixels in 5 on real image pairs (see above). Bare soil
+  is rarely identified correctly, and the optical cloud check sometimes mistakes bright roofs or sand for
+  cloud (up to 6% of a clear scene).
 - Confidence scores are rule-based estimates, not calibrated probabilities.
 
 ---

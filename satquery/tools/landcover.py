@@ -125,6 +125,11 @@ def _classify_ms(r: Raster) -> LandCoverMap:
         ndbi = None
         bsi = nd(b4, b3)          # red-over-green proxy for soil without SWIR
     water = (wi > wthr) & (ndvi < 0.15) & (b8 < 0.2) & ~cloud
+    if has_swir:
+        # L2A atmospheric correction can push very dark water to ~0 in the visible/NIR bands while SWIR stays
+        # slightly higher (seen on the Nile in Cairo), so MNDWI turns negative. Green-vs-NIR (NDWI) still holds;
+        # accept it only for dark pixels so bright surfaces are unaffected.
+        water |= (nd(b3, b8) > 0.2) & (b8 < 0.05) & (b11 < 0.06) & (ndvi < 0.15) & ~cloud
     veg = (ndvi > 0.35) & ~water & ~cloud
     rest = ~water & ~veg & ~cloud
     # sparse / low vegetation; urban surfaces reach NDVI ~0.2 so require a non-built SWIR signature too
