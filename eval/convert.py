@@ -129,7 +129,10 @@ def bentxt(root: Path, split: str) -> list[dict]:
                "qtype": x["category"], "bbox": None, "prebuilt_prompt": x["prompt"]}
         if task == "grounding":
             b = parse_boxes(x["answer"])
-            row["bbox"] = [v / 1000 * 120 for v in b[0]["bbox_2d"]] if b else None
+            # pixel frame of the image the model is scored on (rendered PNGs are upsampled from 120 px)
+            from PIL import Image
+            w, h = Image.open(root / x["images"][0]).size
+            row["bbox"] = [v / 1000 * s for v, s in zip(b[0]["bbox_2d"], (w, h, w, h))] if b else None
             row["answer"] = None
         rows.append(row)
     return rows
