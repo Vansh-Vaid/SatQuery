@@ -10,9 +10,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 \
 WORKDIR /app
 
 # CPU-only PyTorch (about 200 MB instead of several GB of CUDA libraries), then the app's dependencies
+# libexpat1: the rasterio wheel's bundled GDAL links against it, and newer slim images no longer ship it
+RUN apt-get update && apt-get install -y --no-install-recommends libexpat1 \
+ && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt .
 RUN pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision \
- && pip install -r requirements.txt
+ && pip install -r requirements.txt \
+ && python -c "import rasterio, cv2, torch, torchvision, matplotlib, reportlab; print('imports ok, rasterio', rasterio.__version__)"
 
 # ImageNet weights used by the high-resolution models: fetched at build time, not on the first request
 RUN python -c "import torchvision.models as m; m.resnet18(weights=m.ResNet18_Weights.IMAGENET1K_V1)" \
