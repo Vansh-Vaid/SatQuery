@@ -24,6 +24,16 @@ images. The rendering code is shared by training and inference (`models/vlm_prom
 *Why:* the paper's full fine-tune took ~2 days on 4×H200. 6k samples per task type (≈24k) gives a
 feasible single-GPU run; the manually verified `bench` split is kept whole for evaluation.
 
+*Verified against the real file (2026-11-09):*
+- **Size and types:** `BigEarthNet.txt.parquet` has 9,553,962 rows. The types are `binary`, `mcq`,
+  `captioning` and `bounding box`; the splits are `train`, `validation`, `test` and `bench`.
+- **Columns:** all eight columns read by `prepare_bigearthnet_txt.py` exist.
+- **Box answers:** always exactly one box, written `[a b, c d]` in normalised 0–1 coordinates, for example
+  `[0.64 0.0, 1.0 0.71]`. The parser's "normalised" branch handles this. Prompts use `<point>(a, b)</point>`
+  and `<ref>…</ref>`, with points in the same coordinate order as the boxes.
+- **Still to confirm on the GPU machine:** whether each pair is (x, y) or (row, column). Overlay one box on
+  its image before training; training is consistent either way, but the UI draws (x, y).
+
 ### D5. Claude as planner, constrained by structured outputs, gated by a validator
 *Why:* language understanding of arbitrary queries is what an LLM is good at; the JSON schema's tool enum
 is the registry, and `validate_plan` enforces input compatibility, availability, dependency order and
@@ -106,6 +116,62 @@ Routing rules:
 
 The first integration lost about 11 points to routing ("Is a road present?" went to the Highway class),
 which the per-tool error attribution exposed and the fix recovered.
+
+### D14. Change questions: a CDVQA-trained specialist, with the measured change tools as cross-check
+On real aerial pairs, the rule-based change pipeline scored 18.7% on CDVQA. Its yes/no answers were near
+chance, and it could not express CDVQA's answers at all: the six SECOND classes, 10% ratio bins, and
+"changed into what". The pixel measurements were sound, but the mapping from measurements to the
+benchmark's semantics was missing.
+
+`cdvqa_vqa` learns that mapping from:
+- frozen EuroSAT ResNet-18 features of both dates;
+- their per-tile differences;
+- pixel change statistics;
+- SatQuery's land-cover fractions.
+
+It is trained on 437 pairs (15k questions) and scores 65.1% on a 6,000-question subset of test set 1. The
+paper's end-to-end ResNet-18, trained on 1,600 pairs, scores 67.7%. The majority answer per question type
+scores 51%.
+
+Routing:
+- It is primary for change questions on optical pairs. `change_qa` stays as a cross-check: agreement on
+  yes/no raises confidence, disagreement lowers it.
+- "Describe the change" requests, SAR pairs and the change map still come from the measured tools.
+- It abstains on question forms CDVQA never contains. None of its 21,000 questions offer choices or start
+  with anything but What, Have, Did or How. The test suite caught this: on "Has built-up increased,
+  decreased or remained unchanged?" the specialist forced a yes/no and overrode the correct measured
+  "increased". The rule changes none of the benchmark questions.
+
+Data: the mirror (`ljx620/CDVQA`) duplicates both images into every question (about 80 GB), so
+`eval/fetch_cdvqa.py` streams evenly spaced shards, keeps each pair once, retries broken streams and
+resumes per shard.
+
+### D15. High-resolution imagery: VRSBench-trained specialists, routed by pixel size
+VRSBench is 0.5-1 m Google Earth imagery about individual objects. Every earlier model was trained on 10 m
+Sentinel data. The baseline agent scored 23.8% on its VQA sample, 0% on grounding (only land-cover regions
+could be boxed) and low caption overlap.
+
+Three additions, all on frozen ImageNet ResNet-18 features with a 3×3 spatial grid. The grid matters
+because position questions are common.
+- **`hr_vqa`.** 300-answer classifier: 54.0% exact match on all 37,409 evaluation questions (agent sample
+  58.0%).
+- **`hr_grounder`.** Box regressor: 14.5% Acc@0.5. That is honest but weak: the median target covers 1.2%
+  of the image, beyond what a 3×3 grid can localise. Its confidence is capped at 0.35, and every answer
+  says the box is approximate.
+- **Describe mode of `hr_vqa`.** It asks the model about the setting, main object, count and position, and
+  composes a sentence from the confident answers only. No captions are borrowed from other images, which
+  would be misleading in a product even if they scored well.
+
+Routing is by pixel size:
+- The high-resolution tools abstain above 5 m per pixel, and `rsvqa_vqa` abstains below 3 m. Unknown scale
+  (an ungeoreferenced PNG) goes to the high-resolution tools.
+- A 300-question RSVQA re-check scored 87.0%, so the earlier results are unaffected.
+- In grounding, a named object (vehicle, ship, bridge...) takes priority over a land-cover word in the same
+  expression ("the vehicle next to the green area").
+
+Captions are scored on the agent's full answer (the caption), not the one-line UI summary. Short captions
+would otherwise be penalised by BLEU's brevity rule; scoring the summary made the new captions look worse
+than they are. The real fix for captions and small-object grounding is the vision-language model (D2).
 
 ### D9. Synthetic Sentinel-1/2 scenes with known ground truth for tests and demos
 They let tests assert correctness (fractions, change IoU, directions), not just "it runs", and make the

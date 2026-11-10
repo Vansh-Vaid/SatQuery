@@ -28,6 +28,28 @@ function useUtcClock() {
   return now.toISOString().slice(11, 19) + "Z";
 }
 
+const STAGES = ["Checking the inputs", "Planning which tools to use", "Running the specialists", "Cross-checking the evidence"];
+
+function WorkingSteps({ reduced }: { reduced: boolean }) {
+  // the four stages the backend runs, in order; the stage shown advances with elapsed time
+  const [i, setI] = useState(0);
+  useEffect(() => {
+    const t = [350, 900, 2200].map((ms, k) => setTimeout(() => setI(k + 1), reduced ? 0 : ms));
+    return () => t.forEach(clearTimeout);
+  }, [reduced]);
+  return (
+    <div className="working" role="status" aria-live="polite">
+      <p className="working-title">Working on it…</p>
+      <ol>
+        {STAGES.map((s, k) => (
+          <li key={s} className={k < i ? "done" : k === i ? "now" : ""}><i aria-hidden="true" />{s}</li>
+        ))}
+      </ol>
+      <div className="working-skel"><span /><span /><span /></div>
+    </div>
+  );
+}
+
 export default function App() {
   const reduced = useReducedMotion();
   const clock = useUtcClock();
@@ -101,20 +123,32 @@ export default function App() {
     setSlots((s) => s.map((x, j) => (j === i ? { ...x, ...patch } : x)));
   };
 
-  const run = useCallback(async () => {
-    if (!query.trim() || !hasInput || busy) return;
+  const run = useCallback(async (override?: string) => {
+    const q = (override ?? query).trim();
+    if (!q || !hasInput || busy) return;
+    if (override) setQuery(override);
     setBusy(true);
     setError("");
     setResult(null);
     if (mode !== "single") setScanKey((k) => k + 1); // SAR C-band pulse for cross-modal / change workflows
     try {
-      setResult(await api.analyze(mode, demo, activeSlots, query.trim()));
+      setResult(await api.analyze(mode, demo, activeSlots, q));
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setBusy(false);
     }
   }, [query, hasInput, busy, mode, demo, activeSlots]);
+
+  // on stacked (narrow) layouts the answer is below the fold: bring it into view when work starts and when it lands
+  useEffect(() => {
+    if (!(busy || result) || !window.matchMedia("(max-width: 1023px)").matches) return;
+    const id = requestAnimationFrame(() => {
+      const el = document.querySelector(".col-right");
+      if (el) window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - 8, behavior: reduced ? "auto" : "smooth" });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [busy, result, reduced]);
 
   const viewer = result?.viewer;
   const images = viewer?.images?.length ? viewer.images : inspect?.images ?? [];
@@ -125,6 +159,9 @@ export default function App() {
   const highlighted = useMemo(() => new Set([...beam.ids, ...(hoverBox ? [hoverBox] : [])]), [beam.ids, hoverBox]);
   const supporting = (result?.evidence ?? []).filter((e) => !e.primary);
   const available = tools.filter((t) => t.available).length;
+  const trained = tools.filter((t) => t.name !== "rs_vlm" && /^learned/.test(t.kind));
+  const trainedReady = trained.filter((t) => t.available).length;
+  const blocked = inspect !== null && !inspect.ok;
 
   return (
     <div className="app">
@@ -148,12 +185,14 @@ export default function App() {
           <span className="console-chip">Console</span>
         </div>
         <dl className="telemetry">
-          <div><dt>UTC</dt><dd className="mono">{clock}</dd></div>
-          <div><dt>Planner</dt><dd>{health?.planner ?? "—"}</dd></div>
-          <div><dt>Model</dt><dd className={health?.vlm.available ? "ok" : "warn"}>
-            {health ? (health.vlm.available ? health.vlm.status : "Offline · algorithmic tools only") : "—"}</dd></div>
-          <div><dt>Tools</dt><dd className="mono">{available} of {tools.length} ready</dd></div>
-          <div><dt>Version</dt><dd className="mono">v{health?.version ?? "?"}</dd></div>
+          <div title={health?.planner}><dt>Planner</dt><dd><i className={`sdot ${health ? "ok" : ""}`} />
+            {health ? (/claude/i.test(health.planner) && !/no claude/i.test(health.planner) ? "Claude" : "Rule planner") : "—"}</dd></div>
+          <div title={trained.map((t) => `${t.title}: ${t.available ? "ready" : t.status}`).join("\n")}>
+            <dt>Trained models</dt><dd><i className={`sdot ${trainedReady ? "ok" : "warn"}`} />{trainedReady} of {trained.length} ready</dd></div>
+          <div title={health?.vlm.status}><dt>Free-form VLM</dt><dd><i className={`sdot ${health?.vlm.available ? "ok" : "off"}`} />
+            {health ? (health.vlm.available ? "Online" : "Offline") : "—"}</dd></div>
+          <div><dt>Tools</dt><dd className="mono">{available}/{tools.length}</dd></div>
+          <div className="hide-sm"><dt>UTC</dt><dd className="mono">{clock}</dd></div>
         </dl>
       </header>
 
@@ -168,8 +207,8 @@ export default function App() {
             config={result?.trace.input.configuration ?? inspect?.config ?? null} busy={busy} highlighted={highlighted}
             onHoverBox={setHoverBox} />
           <div id="query">
-            <QueryDeck query={query} onQuery={setQuery} onRun={run} chips={chips} busy={busy}
-              disabled={!hasInput || (inspect !== null && !inspect.ok)} />
+            <QueryDeck query={query} onQuery={setQuery} onRun={() => run()} chips={chips} busy={busy}
+              disabled={!hasInput || blocked} />
           </div>
         </div>
 
@@ -182,9 +221,25 @@ export default function App() {
               </header>
               {error && <div className="error" role="alert">{error}</div>}
               {!result && !busy && !error && (
-                <p className="mono-muted">Execute a query to synthesise an evidence-grounded answer.</p>
+                <div className="empty-answer">
+                  <p className="ea-title">{hasInput ? "Ask a question to get a checked answer." : "Choose a demo scene or add an image to begin."}</p>
+                  <ul className="ea-list">
+                    <li><b>A direct answer</b> with a confidence score</li>
+                    <li><b>Regions highlighted</b> on the image</li>
+                    <li><b>Every step</b> the agent took, in order</li>
+                    <li><b>A report</b> as PDF, GeoJSON or JSON</li>
+                  </ul>
+                  {hasInput && !blocked && (
+                    <div className="ea-try">
+                      <span>Try one</span>
+                      {chips.slice(0, 3).map((c) => (
+                        <button key={c} className="ea-q" onClick={() => run(c)}>{c}<i aria-hidden="true">→</i></button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               )}
-              {busy && <div className="card-skeleton"><span className="mono pulse cyan">Analysing the imagery…</span></div>}
+              {busy && <WorkingSteps reduced={reduced} />}
               {result && (
                 <>
                   <EvidenceCard result={result} reduced={reduced} onEntity={(ids, el) => setBeam({ ids, el })} />

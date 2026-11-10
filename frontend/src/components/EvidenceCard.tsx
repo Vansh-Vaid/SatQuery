@@ -85,13 +85,59 @@ export default function EvidenceCard({ result, reduced, onEntity }: Props) {
     setTilt({ x: ((e.clientY - r.top) / r.height - 0.5) * -6, y: ((e.clientX - r.left) / r.width - 0.5) * 8 });
   };
   const allIds = (v.boxes ?? []).map((b) => b.id);
+  // verdict: the short answer, when it is a real answer and not a placeholder like "description"
+  const short = (result.short_answer ?? "").trim();
+  const verdict = short && short.length <= 48 && !/^(description|caption|unsupported|n\/a)$/i.test(short)
+    ? short[0].toUpperCase() + short.slice(1) : null;
+  const nBoxes = v.boxes?.length ?? 0;
+  const regions = `${nBoxes} region${nBoxes === 1 ? "" : "s"}`;
+  const fallback = result.status !== "ok" ? "Partial answer"
+    : result.task === "grounding" ? (nBoxes ? `${regions} highlighted` : "Nothing found to highlight")
+    : result.task === "cross_modal_analysis" ? (nBoxes ? `${regions} found with both sensors` : "Fused reading ready")
+    : result.task === "change_description" ? (nBoxes ? `${regions} of change` : "No significant change")
+    : result.task === "caption" ? "Scene described" : "Answer ready";
+  const notes = result.trace.result?.integration_notes ?? [];
+  const crossCheck = notes.some((n) => /disagree/.test(n)) ? { cls: "warn", text: "Sources disagree" }
+    : notes.some((n) => /confirmed/.test(n)) ? { cls: "ok", text: "Cross-checked" } : null;
+  const secs = result.trace.duration_ms != null ? `${(result.trace.duration_ms / 1000).toFixed(1)} s` : null;
+  const learned = /^learned/.test(primary?.kind ?? "");
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard?.writeText(result.answer).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1600); })
+      .catch(() => undefined);
+  };
+  const pct = conf != null ? Math.round(conf * 100) : null;
+  const R = 22, C = 2 * Math.PI * R;
 
   return (
     <div className="card-wrap" onMouseMove={onMove} onMouseLeave={() => { setTilt({ x: 0, y: 0 }); onEntity([], null); }}>
       <div ref={card} className={`evidence-card ${flipped ? "flipped" : ""}`}
         style={{ transform: `rotateX(${tilt.x}deg) rotateY(${tilt.y + (flipped ? 180 : 0)}deg)` }}>
         <div className="face front" aria-hidden={flipped}>
-          <div className="card-badge"><b>{(result.task ?? "rejected").replace(/_/g, " ")}</b> · {provenance}</div>
+          <div className="verdict">
+            <div className="verdict-main">
+              <span className="verdict-kicker">{(result.task ?? "rejected").replace(/_/g, " ")}</span>
+              {verdict ? <p className="verdict-answer">{verdict}</p>
+                : <p className="verdict-answer soft">{fallback}</p>}
+            </div>
+            <div className={`ring ${result.confidence_label}`} role="img"
+              aria-label={pct != null ? `Confidence ${pct} percent, ${result.confidence_label}` : "Confidence not available"}>
+              <svg viewBox="0 0 56 56" aria-hidden="true">
+                <circle cx="28" cy="28" r={R} className="ring-track" />
+                <circle cx="28" cy="28" r={R} className="ring-fill" strokeDasharray={C}
+                  strokeDashoffset={C * (1 - (conf ?? 0))} transform="rotate(-90 28 28)" />
+              </svg>
+              <span className="ring-val">{pct != null ? pct : "–"}<small>%</small></span>
+              <span className="ring-label">{result.confidence_label} confidence</span>
+            </div>
+          </div>
+          <ul className="verdict-meta" aria-label="How this answer was produced">
+            {primary && <li title={primary.purpose}><i className={learned ? "dot-learned" : "dot-measure"} />
+              {primary.title}<span>{learned ? "trained model" : "measurement"}</span></li>}
+            {crossCheck && <li className={crossCheck.cls}>{crossCheck.cls === "ok" ? "✓" : "!"} {crossCheck.text}</li>}
+            {secs && <li className="mono">{secs}</li>}
+          </ul>
+          <p className="provenance">{provenance}</p>
           <p className="answer">
             {parts.map((p, i) => p.ids.length ? (
               <span key={i} className="entity" tabIndex={0}
@@ -101,16 +147,14 @@ export default function EvidenceCard({ result, reduced, onEntity }: Props) {
           </p>
           {result.warnings.length > 0 && <ul className="warn-list">{result.warnings.map((w) => <li key={w}>⚠ {w}</li>)}</ul>}
           <div className="telemetry-bar">
-            <div className="conf">
-              <span className="micro">Confidence <b>{conf != null ? `${(conf * 100).toFixed(1)}%` : "n/a"}</b> · {result.confidence_label}</span>
-              <div className="meter"><span className={result.confidence_label} style={{ width: `${(conf ?? 0) * 100}%` }} /></div>
-            </div>
             <div className="card-actions">
               {allIds.length > 0 && (
-                <button className="link-btn" onMouseEnter={(e) => onEntity(allIds, e.currentTarget)}
-                  onMouseLeave={() => onEntity([], null)}>Hover to highlight regions</button>
+                <button className="ghost-btn" onMouseEnter={(e) => onEntity(allIds, e.currentTarget)}
+                  onFocus={(e) => onEntity(allIds, e.currentTarget)} onBlur={() => onEntity([], null)}
+                  onMouseLeave={() => onEntity([], null)}>◎ Show all regions</button>
               )}
-              <button className="link-btn" onClick={() => setFlipped(true)}>Show audit log →</button>
+              <button className="ghost-btn" onClick={copy} aria-live="polite">{copied ? "✓ Copied" : "Copy answer"}</button>
+              <button className="ghost-btn" onClick={() => setFlipped(true)}>Audit log →</button>
             </div>
           </div>
         </div>

@@ -131,8 +131,8 @@ export default function LayerStack({ layers, hovered, onHover, reduced }: {
   return (
     <div ref={host} className="lp-stack" role="img"
       aria-label={`3D exploded view of ${layers.length} analysis layers: ${layers.map((l) => l.title).join(", ")}. Drag to rotate.`}>
-      <Canvas dpr={[1, 1.25]} camera={{ position: [3.4, 2.4, 3.4], fov: 38 }} frameloop={visible ? "always" : "never"}
-        gl={{ antialias: true, alpha: true }} onCreated={({ camera }) => camera.lookAt(0, 0, 0)}>
+      <Canvas dpr={[1, 1.25]} camera={{ position: [3.9, 2.7, 3.9], fov: 38 }} frameloop={visible ? "always" : "never"}
+        gl={{ antialias: true, alpha: true }} onCreated={({ camera }) => camera.lookAt(0, -0.2, 0)}>
         <Rig reduced={reduced}>
           {layers.map((l, i) => (
             <Plane key={l.key + (l.png ? "1" : "0")} layer={l} index={i} count={layers.length} hovered={hovered}
@@ -141,7 +141,7 @@ export default function LayerStack({ layers, hovered, onHover, reduced }: {
           <gridHelper args={[4, 16, "#bdb48f", "#e4dcc6"]} position={[0, -1.4, 0]} />
         </Rig>
       </Canvas>
-      <span className="lp-stack-hint">DRAG TO ROTATE · HOVER A LAYER</span>
+      <span className="lp-stack-hint">Drag to rotate · hover a layer</span>
     </div>
   );
 }

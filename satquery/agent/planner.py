@@ -47,6 +47,7 @@ class RulePlanner:
         vlm_ok = registry.available("rs_vlm")[0]
         scene_ok = registry.available("rs_scene_classifier")[0]
         rsvqa_ok = registry.available("rsvqa_vqa")[0]
+        hr_ok = registry.available("hr_vqa")[0]
         optical = any(r.modality.is_optical for r in report.rasters)
         steps: list[PlanStep] = []
         if cfg is InputConfig.SINGLE:
@@ -57,12 +58,16 @@ class RulePlanner:
                     steps.append(PlanStep("rs_vlm", {"mode": "grounding"}, "referring-expression grounding (boxes)"))
                 steps += [PlanStep(lc, {}, "land-cover masks as grounding evidence"),
                           PlanStep("region_grounder", {}, "select regions matching the referred class")]
+                if registry.available("hr_grounder")[0] and lc == "landcover_optical":
+                    steps.append(PlanStep("hr_grounder", {}, "approximate box for a referred object (high-resolution images)"))
             elif intent == "describe":
                 task = TaskType.CAPTION
                 if vlm_ok:
                     steps.append(PlanStep("rs_vlm", {"mode": "caption"}, "scene caption"))
                 steps += [PlanStep(lc, {}, "quantitative land-cover evidence"),
                           PlanStep("landcover_reasoner", {"mode": "describe"}, "land-cover scene description")]
+                if hr_ok and optical:
+                    steps.append(PlanStep("hr_vqa", {"mode": "describe"}, "object-level description (high-resolution images)"))
                 if scene_ok and optical:
                     steps.append(PlanStep("rs_scene_classifier", {"mode": "describe"}, "EuroSAT-adapted land-use classification"))
             else:
@@ -75,6 +80,8 @@ class RulePlanner:
                     steps.append(PlanStep("rs_scene_classifier", {"mode": "qa"}, "land-use answer from the adapted classifier"))
                 if rsvqa_ok and optical:
                     steps.append(PlanStep("rsvqa_vqa", {}, "answer from the RSVQA-trained VQA specialist"))
+                if hr_ok and optical:
+                    steps.append(PlanStep("hr_vqa", {}, "answer from the VRSBench-trained high-resolution specialist"))
         elif cfg is InputConfig.CROSS_MODAL:
             task = TaskType.CROSS_MODAL
             steps = [PlanStep("landcover_optical", {}, "optical/multispectral land cover + cloud mask"),
@@ -96,6 +103,9 @@ class RulePlanner:
                      PlanStep("change_semantics", {}, "what changed into what"),
                      PlanStep("change_qa", {"mode": "describe" if intent == "describe" else "auto"},
                               "answer / describe the change")]
+            if intent != "describe" and registry.available("cdvqa_vqa")[0] and all(
+                    r.modality.is_optical for r in report.rasters):
+                steps.append(PlanStep("cdvqa_vqa", {}, "answer from the CDVQA-trained change specialist"))
             if vlm_ok and intent == "describe":
                 steps.append(PlanStep("rs_vlm", {}, "auxiliary visual change description"))
         return Plan(task=task, intent=intent, steps=steps, planner=self.name,
