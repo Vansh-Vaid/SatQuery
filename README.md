@@ -3,6 +3,12 @@
 **Ask a question about a satellite image in plain English, and get an answer with a map, a confidence
 score and a record of how the answer was reached.**
 
+**Try it online:**
+- **Web app:** https://satquery.happysky-a511d77c.koreacentral.azurecontainerapps.io
+- **Analysis console:** https://satquery.happysky-a511d77c.koreacentral.azurecontainerapps.io/console
+
+If nobody has used it for a while, the first load takes about a minute while it starts up.
+
 ![SatQuery landing page](docs/images/landing.jpg)
 
 You give SatQuery one or two satellite images and a question such as *"Is there water in this image?"* or
