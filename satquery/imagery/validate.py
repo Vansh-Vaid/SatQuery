@@ -6,6 +6,7 @@ to execute any tool when the report has a failing check.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
@@ -14,6 +15,8 @@ import cv2
 import numpy as np
 
 from satquery.imagery.raster import Modality, Raster
+
+log = logging.getLogger(__name__)
 
 
 class InputConfig(str, Enum):
@@ -189,9 +192,12 @@ def _align(rep: ValidationReport, ref: Raster, mov: Raster) -> Raster:
         if iou is not None and iou < 0.05:
             rep.add("pair.grid", "fail", f"Images do not cover the same area (footprint IoU {iou:.2f}).")
             return mov
-        rep.add("pair.grid", "warn" if (iou or 1) < 0.8 else "pass",
-                f"Second image reprojected onto the first image's grid ({ref.crs}); footprint IoU "
-                f"{iou:.2f}." if iou is not None else "Second image reprojected onto first grid.")
+        if iou is None:
+            rep.add("pair.grid", "warn", "Second image reprojected onto the first image's grid, but SatQuery could "
+                    "not check that both images cover the same area. Check the footprints yourself.")
+        else:
+            rep.add("pair.grid", "warn" if iou < 0.8 else "pass",
+                    f"Second image reprojected onto the first image's grid ({ref.crs}); footprint IoU {iou:.2f}.")
         return _reproject(ref, mov)
     if ref.georeferenced != mov.georeferenced:
         rep.add("pair.georef", "warn", "Only one image is georeferenced; assuming identical footprints.")
@@ -215,6 +221,7 @@ def _bounds_iou(a: Raster, b: Raster) -> float | None:
         from rasterio.warp import transform_bounds
         bb = transform_bounds(b.crs, a.crs, *b.bounds) if str(a.crs) != str(b.crs) else b.bounds
     except Exception:
+        log.warning("footprint overlap check failed (%s -> %s)", b.crs, a.crs, exc_info=True)
         return None
     ax0, ay0, ax1, ay1 = a.bounds
     bx0, by0, bx1, by1 = bb

@@ -12,12 +12,15 @@ from __future__ import annotations
 
 import base64
 import io
+import logging
 import threading
 from typing import Protocol
 
 from PIL import Image
 
 from satquery.models.vlm_prompts import chat_messages
+
+log = logging.getLogger(__name__)
 
 
 class VLMBackend(Protocol):
@@ -70,7 +73,7 @@ class HFBackend:
                 ts = self._model.compute_transition_scores(out.sequences, out.scores, normalize_logits=True)
                 conf = float(torch.exp(ts[0].float().mean()).item())
             except Exception:
-                pass
+                log.warning("VLM token scores unavailable; answer has no model confidence", exc_info=True)
             return text, conf
 
 

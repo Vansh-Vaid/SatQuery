@@ -1,6 +1,7 @@
 """rs_vlm: the remote-sensing-adapted vision-language model as a registry tool."""
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 
@@ -8,7 +9,9 @@ from satquery.config import settings
 from satquery.imagery.validate import InputConfig
 from satquery.models.vlm_backend import HFBackend, RemoteBackend, VLMBackend
 from satquery.models.vlm_prompts import box_to_pixels, build_prompt, parse_boxes, render_for_vlm
-from satquery.tools.base import Box, ParamSpec, Tool, ToolContext, ToolResult, ToolSpec, TaskType
+from satquery.tools.base import Box, ParamSpec, TaskType, Tool, ToolContext, ToolResult, ToolSpec
+
+log = logging.getLogger(__name__)
 
 
 def make_backend() -> VLMBackend | None:
@@ -86,6 +89,7 @@ class RSVLM(Tool):
         try:
             text, conf = self.backend.generate(images, prompt, int(params.get("max_new_tokens", 160)))
         except Exception as exc:  # network / OOM / missing weights -> degrade, never crash the request
+            log.exception("VLM inference failed")
             return ToolResult(self.spec.name, "error", notes=[f"VLM inference failed: {type(exc).__name__}: {exc}"])
         facts: dict[str, Any] = {"task": task, "backend": self.backend.name, "raw_output": text[:2000]}
         boxes: list[Box] = []

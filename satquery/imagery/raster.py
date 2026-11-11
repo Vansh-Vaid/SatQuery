@@ -6,12 +6,15 @@ All loaders convert to the same units so downstream tools never guess:
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import date
 from enum import Enum
 from typing import Any
 
 import numpy as np
+
+log = logging.getLogger(__name__)
 
 
 class Modality(str, Enum):
@@ -112,6 +115,7 @@ class Raster:
             w, s, e, n = transform_bounds(self.crs, "EPSG:4326", *self.bounds, densify_pts=21)
             return [round(w, 6), round(s, 6), round(e, 6), round(n, 6)]
         except Exception:
+            log.debug("could not convert bounds of %s to lon/lat", self.name, exc_info=True)
             return None
 
     @property

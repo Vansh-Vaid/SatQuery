@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import logging
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -20,10 +21,20 @@ from satquery.agent.planner import ClaudePlanner, PlannerError, RulePlanner, has
 from satquery.agent.viewer import build_viewer
 from satquery.config import settings
 from satquery.imagery.raster import Raster
-from satquery.imagery.render import colorize, draw_boxes, false_color, overlay, png_data_uri, to_rgb, upscale_for_display
+from satquery.imagery.render import (
+    colorize,
+    draw_boxes,
+    false_color,
+    overlay,
+    png_data_uri,
+    to_rgb,
+    upscale_for_display,
+)
 from satquery.imagery.validate import InputConfig, validate_inputs
 from satquery.tools.base import Box, TaskType, ToolContext, ToolResult
 from satquery.tools.registry import Registry, default_registry
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -137,6 +148,7 @@ class SatQueryAgent:
             try:
                 res = tool.run(ctx, params)
             except Exception as exc:  # a failing specialist must not take down the request
+                log.exception("tool %s failed", tool.spec.name)
                 res = ToolResult(tool.spec.name, "error", notes=[f"{type(exc).__name__}: {exc}"])
             dur = (time.perf_counter() - ts) * 1000
             ctx.upstream[tool.spec.name] = res
