@@ -46,7 +46,8 @@ def predict_vlm(vlm, row):
     res = vlm.run(ToolContext(row["query"], rep.config, rep.rasters), {**vlm.defaults(), "mode": mode})
     return {"pred": res.facts.get("short_answer") or res.answer or "", "full": res.answer,
             "boxes": [[b.x0, b.y0, b.x1, b.y1] for b in res.boxes], "confidence": res.confidence,
-            "tools": ["rs_vlm"], "status": res.status}
+            "tools": ["rs_vlm"], "status": res.status,
+            **({"error": "; ".join(res.notes) or "tool returned an error"} if res.status == "error" else {})}
 
 
 def main() -> None:
@@ -75,6 +76,7 @@ def main() -> None:
     acc = defaultdict(lambda: [0, 0])
     caps_p, caps_r, ious = [], [], defaultdict(list)
     cal_c, cal_y = [], []
+    errors: list[str] = []
     t0 = time.time()
     done = 0
     with (args.out / "predictions.jsonl").open("w", encoding="utf-8") as fh:
@@ -86,8 +88,11 @@ def main() -> None:
             done = i + 1
             try:
                 p = fn(runner, row)
-            except Exception as e:  # keep going; count as wrong
-                p = {"pred": "", "full": f"ERROR {type(e).__name__}: {e}", "boxes": [], "confidence": None, "tools": []}
+            except Exception as e:  # keep going; count as wrong, but record why
+                p = {"pred": "", "full": None, "boxes": [], "confidence": None, "tools": [], "status": "error",
+                     "error": f"{type(e).__name__}: {e}"}
+            if p.get("status") == "error":
+                errors.append(p.get("error", ""))
             rec = {"id": row["id"], "task": row["task"], "qtype": row.get("qtype"), "query": row["query"],
                    "answer": row.get("answer"), **p}
             if row["task"] in ("vqa", "change_vqa"):
@@ -112,7 +117,9 @@ def main() -> None:
             if (i + 1) % 50 == 0:
                 print(f"{i + 1}/{len(rows)}  {(time.time() - t0) / (i + 1):.2f}s/sample", flush=True)
 
-    metrics: dict = {"n": done, "mode": args.mode, "data": str(args.data)}
+    metrics: dict = {"n": done, "mode": args.mode, "data": str(args.data), "errors": len(errors)}
+    if errors:
+        metrics["first_error"] = errors[0][:500]
     if done < len(rows):
         metrics["stopped_early"] = f"time limit: scored {done} of {len(rows)} examples"
     if acc:
@@ -141,6 +148,11 @@ def main() -> None:
             lines.append("")
     (args.out / "summary.md").write_text("\n".join(lines), encoding="utf-8")
     print(json.dumps(metrics, indent=2))
+    if errors:
+        print(f"WARNING: {len(errors)} of {done} predictions failed and were scored as wrong. First error: "
+              f"{errors[0][:500]}", file=sys.stderr)
+    if done and len(errors) == done:
+        sys.exit("every prediction failed, so these scores do not measure the model (see the error above)")
 
 
 if __name__ == "__main__":

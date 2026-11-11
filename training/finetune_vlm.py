@@ -147,6 +147,9 @@ def main() -> None:
             opt.zero_grad(set_to_none=True)
             sched.step()
             step += 1
+            if not math.isfinite(run_loss):
+                raise SystemExit(f"training loss is {run_loss} at step {step}; stopping (lower --lr, or use a "
+                                 "bf16 GPU). No adapter is saved from a diverged run.")
             rec = {"step": step, "loss": round(run_loss, 4), "lr": sched.get_last_lr()[0],
                    "elapsed_min": round((time.time() - t0) / 60, 1)}
             run_loss = 0.0
@@ -156,6 +159,8 @@ def main() -> None:
             if step % args.eval_every == 0 or step == total:
                 if val:
                     rec["val_loss"] = round(run_eval(), 4)
+                    if not math.isfinite(rec["val_loss"]):
+                        raise SystemExit(f"validation loss is {rec['val_loss']} at step {step}; stopping.")
                     if rec["val_loss"] < best:
                         best = rec["val_loss"]
                         model.save_pretrained(args.out)
@@ -167,7 +172,7 @@ def main() -> None:
             if step >= total:
                 break
         epoch += 1
-    if not val:
+    if not val or not (args.out / "adapter_config.json").exists():
         model.save_pretrained(args.out)
     print(f"done; adapter in {args.out} (best val loss {best:.4f})")
 

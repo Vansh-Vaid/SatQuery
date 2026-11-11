@@ -64,7 +64,7 @@ def main() -> None:
     backend = HFBackend(args.base, str(out))
     text, conf = backend.generate([render_for_vlm(S.render_s2(lab))], build_prompt("vqa", "Is there water?",
                                                                                     [Modality.S2_MS]), 12)
-    print(f"generation OK: {text[:60]!r} (confidence {conf})")
+    print(f"generation OK: {ascii(text[:60])} (confidence {conf})")   # ascii: random tokens, any console
     agent = SatQueryAgent(default_registry(RSVLM(backend=backend)), planner=RulePlanner())
     r = agent.run("Use the optical and SAR images together to identify built-up and water-covered regions.",
                   [S.render_s2(lab, acquired=date(2024, 6, 1)), S.render_s1(lab, acquired=date(2024, 6, 2))])
