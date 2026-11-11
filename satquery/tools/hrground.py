@@ -1,9 +1,11 @@
-"""hr_grounder: approximate object grounding for high-resolution aerial images, trained on VRSBench.
+"""hr_grounder: object grounding for high-resolution aerial images, trained on VRSBench.
 
-Regresses one box for a referring expression ("the large yellow vehicle closest to the green area") from frozen
-ImageNet ResNet-18 3x3-grid features and a bag-of-words encoding of the expression. On the VRSBench referring
-test set it reaches 14.5% Acc@0.5: usable for large objects (fields, courts, airplanes ~24-29%), weak for small
-ones (vehicles <1%). Its confidence is capped accordingly and every answer says the location is approximate.
+Finds one box for a referring expression ("the large yellow vehicle closest to the green area").
+Two checkpoint formats load:
+- "dense" (current, satquery/models/hr_ground_net.py): a 14x14 ResNet-18 feature map modulated by the
+  expression; the best-scoring cell gives the box. Confidence is read from the checkpoint's test-set table
+  of Acc@0.5 by cell probability, so it is a measured hit rate, not a guess.
+- legacy: one box regressed from a 3x3 grid (14.5% Acc@0.5); confidence capped at CAP.
 Abstains on images coarser than 5 m per pixel.
 """
 from __future__ import annotations
@@ -44,6 +46,13 @@ def _load():
             import torch
             import torch.nn as nn
             state = torch.load(key, map_location="cpu", weights_only=False)
+            if state.get("arch") == "dense":
+                from satquery.models.hr_ground_net import DenseGrounder, load_dense_encoder
+                model = DenseGrounder(len(state["vocab"]))
+                model.load_state_dict(state["model"])
+                model.eval()
+                _cache[key] = (model, state, load_dense_encoder(), state.get("metrics", {}))
+                return _cache[key]
             nv, d = len(state["vocab"]), state["img_dim"]
 
             class Grounder(nn.Module):
@@ -67,13 +76,23 @@ def _load():
         return _cache[key]
 
 
+def measured_confidence(cell_p: float, table: list[dict]) -> float:
+    """Test-set Acc@0.5 of the probability bin `cell_p` falls in (bins sorted by p_max)."""
+    if not table:
+        return float(min(CAP, cell_p))
+    for row in table:
+        if cell_p <= row["p_max"]:
+            return float(row["acc"])
+    return float(table[-1]["acc"])
+
+
 class HighResGrounder(Tool):
     spec = ToolSpec(
         name="hr_grounder",
         title="Approximate object locator (VRSBench)",
-        description="Draws one approximate box for a referred object (vehicle, ship, airplane, bridge, harbor, "
-                    "storage tank, court, field...) in a sub-metre aerial image. Reliable mainly for large "
-                    "objects; confidence is always reported as low. Abstains on images coarser than 5 m per pixel.",
+        description="Draws one box for a referred object (vehicle, ship, airplane, bridge, harbor, storage "
+                    "tank, court, field...) in a sub-metre aerial image. Confidence is the measured hit rate "
+                    "for similar predictions on VRSBench. Abstains on images coarser than 5 m per pixel.",
         tasks=(TaskType.GROUNDING,),
         input_configs=(InputConfig.SINGLE,),
         kind="learned (RS-adapted)",
@@ -99,14 +118,22 @@ class HighResGrounder(Tool):
         vocab = state["vocab"]
         if len([t for t in tokens(ctx.query) if t in vocab and "_" not in t]) < int(params.get("min_known_words", 2)):
             return ToolResult(self.spec.name, "unsupported", notes=["Expression is outside the VRSBench vocabulary."])
-        img = (encode_batch(body, [to_rgb(r)])[0] - state["feat_mean"]) / state["feat_std"]
-        with torch.inference_mode():
-            b = model(torch.from_numpy(img[None].astype(np.float32)),
-                      torch.from_numpy(encode_question(ctx.query, vocab)[None]))[0].numpy()
+        if state.get("arch") == "dense":
+            from satquery.models.hr_ground_net import encode_dense, project, token_ids
+            f = project(encode_dense(body, [to_rgb(r)]), state["pca_mean"], state["pca_comp"], state["pca_scale"])
+            bt, pt = model.predict(torch.from_numpy(f), torch.from_numpy(token_ids(ctx.query, vocab)[None]))
+            b, cell_p = bt[0].numpy(), float(pt[0])
+            conf = measured_confidence(cell_p, metrics.get("confidence_table") or [])
+        else:
+            img = (encode_batch(body, [to_rgb(r)])[0] - state["feat_mean"]) / state["feat_std"]
+            with torch.inference_mode():
+                b = model(torch.from_numpy(img[None].astype(np.float32)),
+                          torch.from_numpy(encode_question(ctx.query, vocab)[None]))[0].numpy()
+            cell_p = None
+            conf = float(min(CAP, 0.15 + 0.6 * np.sqrt(float((b[2] - b[0]) * (b[3] - b[1])))))
         h, w = r.shape
         label = obj.group(0).lower() if obj else "referred object"
         area = float((b[2] - b[0]) * (b[3] - b[1]))
-        conf = float(min(CAP, 0.15 + 0.6 * np.sqrt(area)))   # larger boxes were localised more reliably
         box = Box(float(b[0] * w), float(b[1] * h), float(b[2] * w), float(b[3] * h), label=label, score=conf,
                   source=self.spec.name)
         acc = metrics.get("test_acc_at_0.5")
@@ -117,4 +144,5 @@ class HighResGrounder(Tool):
         return ToolResult(self.spec.name, answer=answer, boxes=[box], confidence=conf,
                           facts={"short_answer": "approximate box", "object_mentioned": bool(obj),
                                  "box_norm": [round(float(v), 3) for v in b],
+                                 "cell_probability": None if cell_p is None else round(cell_p, 4),
                                  "vrsbench_acc_at_0.5": acc, "vrsbench_acc_by_class": metrics.get("acc_by_class")})
