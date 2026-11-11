@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ["satquery/**", "tests/**", "demo_data/**", "Dockerfile", ".dockerignore", "requirements.txt", "run.py",
+    paths: ["satquery/**", "tests/**", "demo_data/**", "Dockerfile", ".dockerignore", "requirements.txt", "run.py", "pytest.ini",
             ".github/workflows/build-image.yml"]
 
 permissions:
