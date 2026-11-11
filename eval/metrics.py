@@ -117,3 +117,42 @@ def box_iou(a: list[float], b: list[float]) -> float:
     inter = ix * iy
     ua = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
     return inter / ua if ua > 0 else 0.0
+
+
+def _default_label(c: float) -> str:
+    # Same thresholds as satquery.agent.controller.confidence_label (kept here so eval needs no torch import).
+    return "high" if c >= 0.75 else "medium" if c >= 0.5 else "low"
+
+
+def calibration(confs: list[float], correct: list[bool], n_bins: int = 10, label_fn=_default_label) -> dict:
+    """How well stated confidence matches accuracy.
+
+    ECE = sum over equal-width bins of (fraction of answers in bin) * |mean confidence - accuracy|.
+    Also returns the reliability-diagram bins and the accuracy behind each confidence label.
+    """
+    pairs = [(float(c), bool(y)) for c, y in zip(confs, correct) if c is not None]
+    if not pairs:
+        return {}
+    n = len(pairs)
+    bins = [[] for _ in range(n_bins)]
+    for c, y in pairs:
+        bins[min(int(c * n_bins), n_bins - 1)].append((c, y))
+    rel, ece = [], 0.0
+    for k, b in enumerate(bins):
+        if not b:
+            continue
+        conf = sum(c for c, _ in b) / len(b)
+        acc = sum(y for _, y in b) / len(b)
+        ece += len(b) / n * abs(conf - acc)
+        rel.append({"bin": [round(k / n_bins, 2), round((k + 1) / n_bins, 2)], "n": len(b),
+                    "confidence": round(conf, 4), "accuracy": round(acc, 4)})
+    labels: dict[str, list[int]] = {}
+    for c, y in pairs:
+        s = labels.setdefault(label_fn(c), [0, 0])
+        s[0] += 1
+        s[1] += int(y)
+    return {"n": n, "ECE": round(ece, 4),
+            "mean_confidence": round(sum(c for c, _ in pairs) / n, 4),
+            "accuracy": round(sum(y for _, y in pairs) / n, 4),
+            "by_label": {k: {"n": t, "accuracy": round(c / t, 4)} for k, (t, c) in sorted(labels.items())},
+            "reliability": rel}

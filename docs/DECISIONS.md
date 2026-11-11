@@ -50,8 +50,11 @@ reachable answer. A learned Siamese U-Net (LEVIR-CD) can replace it via a checkp
 VLM confidence is the geometric-mean token probability; algorithmic confidence comes from margins to
 decision thresholds and class reliability per sensor. Agreement between VLM and evidence raises it,
 disagreement multiplies by 0.7, each input warning costs 4% (floor 70%). Labels: high ≥ 0.75,
-medium ≥ 0.5. These are heuristic scores, not calibrated probabilities; calibrating them on the
-benchmark predictions (reliability diagrams from `eval/run_eval.py` output) is a follow-up.
+medium ≥ 0.5. The scores are rule-based, but measured against the benchmark predictions they track accuracy
+closely: ECE 0.076 (RSVQA-LR), 0.038 (CDVQA), 0.045 (VRSBench VQA), with "high" answers right 88-90% of the
+time (`eval/calibration_report.py`; `run_eval.py` now writes a `calibration` block to metrics.json). We did
+not re-fit them (temperature or isotonic scaling): the gain available is about 0.03 ECE and fitting on
+these same samples would overfit the benchmarks. Re-check whenever a tool or the integration rules change.
 
 ### D8. Cross-modal fusion is decision-level with class-specific sensor weights
 Optical is trusted more for vegetation, SAR more for built-up (double-bounce) and equally for water;

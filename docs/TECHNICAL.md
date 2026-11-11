@@ -28,7 +28,7 @@ pair**, ask a question in plain English, and SatQuery:
 | Agentic orchestration | `satquery/agent/`: planner (Claude `claude-opus-5-5` with structured JSON limited to the registry, or rules) → `validate_plan` (unknown/incompatible/unavailable tools dropped, dependencies auto-inserted, undeclared params rejected, values clipped) → executor → integrator |
 | Input checking | `satquery/imagery/validate.py`: per-check pass/warn/fail, chronological reordering, reprojection to a common grid, footprint IoU, joint valid-pixel coverage |
 | Formats | GeoTIFF/TIFF (any band count, uint8/uint16/float, linear or dB SAR); PNG/JPEG accepted for benchmark images with an explicit warning |
-| Visual evidence, confidence, execution summary, downloadable reports | Web UI gallery (masks, heatmaps, boxes), heuristic confidence score + label (see D7), step-by-step trace (tool, params, status, timing, output), HTML report with embedded images + JSON trace |
+| Visual evidence, confidence, execution summary, downloadable reports | Web UI gallery (masks, heatmaps, boxes), confidence score + label (see D7; measured ECE 0.04-0.08 on three benchmarks), step-by-step trace (tool, params, status, timing, output), HTML report with embedded images + JSON trace |
 | Interactive GUI | FastAPI + web UI (`satquery/web/`), demo scenarios built in |
 | Test & demo scripts | `tests/` (59 tests), `scripts/smoke_vlm_pipeline.py`, `scripts/run_query.py`, `demo_data/` |
 | Evaluation on VRSBench, RSVQA, CDVQA (+ BigEarthNet.txt bench) | `eval/convert.py` (dataset → common JSONL) + `eval/run_eval.py` (agent or VLM-only; accuracy per question type, BLEU/ROUGE-L/CIDEr, mIoU / Acc@0.5) |
@@ -243,6 +243,7 @@ measure the adaptation gain); `--mode agent` measures the full system.
 | `hr_grounder` (referring-expression boxes) | VRSBench referring eval set, 16,159 expressions | **14.5%** Acc@0.5, mean IoU 0.21; ground-track field 28.5%, tennis court 25.9%, airplane 23.8%, vehicle 0.7%. Full agent on a 250-expression sample: 14.8% (was 0%) |
 | Captions on VRSBench | 150-image sample, full answer vs reference | BLEU-1 0.173, BLEU-4 0.038, ROUGE-L 0.136 (was 0.132 / 0.031 / 0.109) |
 | Optical-SAR land cover on real pairs (`eval/real_pair_test.py`) | 6 sites × 6 km (Rotterdam, Geneva, Cairo, Hyderabad, Sacramento, Dhaka under 44% cloud); Sentinel-2 L2A + Sentinel-1 RTC 0-3 days apart, from Planetary Computer; ESA WorldCover 2021 as reference; per-pixel, 4 classes | mean pixel accuracy: `optical_sar_fusion` **79.9%**, `landcover_sar` 74.0%, `landcover_optical` 60.9%. Macro-F1 0.718 / 0.616 / 0.645. Mean IoU fused: water 0.73, built-up 0.72, vegetation 0.50, bare soil 0.03. Under cloud (Dhaka, ESA SCL mask): fused 77.7%, SAR 76.6%, optical 35.0%. Fusion beats both single sensors on 5 of 6 sites; on Cairo SAR alone is higher (84.2% vs 81.7%) |
+| Confidence calibration (`eval/calibration_report.py`) | the full-agent runs above: RSVQA-LR 1,300, CDVQA 1,200, VRSBench VQA 589 questions | expected calibration error (ECE, 10 bins) **0.076 / 0.038 / 0.045**; mean confidence 85.8% vs accuracy 85.7%, 54.0% vs 55.7%, 60.2% vs 59.1%. Accuracy by label: high 89.7% / 87.5% / 88.4%, medium 78.2% / 59.8% / 57.3%, low 53.7% / 38.5% / 27.6%. Reliability diagram: `docs/images/calibration.png`. RSVQA-LR is underconfident around 0.6-0.7 and overconfident around 0.75-0.9 |
 | Full agent on the same pairs | 1 cross-modal question per site | runs `landcover_optical → landcover_sar → optical_sar_fusion → region_grounder → landcover_reasoner`; status ok on 6/6; confidence "medium" on clear sites, "low" on Dhaka; about 3 s per question on a laptop CPU |
 
 ```bash
@@ -257,8 +258,12 @@ python training/train_cdvqa.py                              # ~6 min CPU
 python eval/convert.py vrsbench --root data/vrsbench --out eval/data/vrsbench_val.jsonl
 python training/train_vrsbench_vqa.py --features-only       # encode images once (~15 min CPU, resumable)
 python training/train_vrsbench_vqa.py --epochs 8            # ~8 min
-python training/train_vrsbench_grounding.py --epochs 12     # ~3 min
+python training/train_vrsbench_grounding.py --features-only # dense 14x14 maps (~1-1.5 h CPU, resumable)
+python training/train_vrsbench_grounding.py                 # the 14.5% figure above is the earlier 3x3 model
+python eval/calibration_report.py eval/results/rsvqa_lr eval/results/cdvqa_agent eval/results/vrs_agent_vqa --names RSVQA-LR CDVQA VRSBench --plot docs/images/calibration.png
 ```
+
+![Confidence vs accuracy](images/calibration.png)
 
 VRSBench scoring here is strict exact match after normalisation; the VRSBench paper judges open answers with
 GPT-4, so the numbers are not directly comparable to its leaderboard.

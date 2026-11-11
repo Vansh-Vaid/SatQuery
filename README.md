@@ -209,7 +209,9 @@ Being honest about the limits:
 - **Optical + radar maps** are right for about 4 pixels in 5 on real image pairs (see above). Bare soil
   is rarely identified correctly, and the optical cloud check sometimes mistakes bright roofs or sand for
   cloud (up to 6% of a clear scene).
-- Confidence scores are rule-based estimates, not calibrated probabilities.
+- Confidence scores come from rules, but they have been checked against real answers: on three benchmarks
+  the stated confidence is within 4-8 points of the actual accuracy. Answers marked **high** were right
+  88-90% of the time, **medium** 57-78%, **low** 28-54% (details in [TECHNICAL.md](docs/TECHNICAL.md)).
 
 ---
 

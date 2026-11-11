@@ -19,7 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from metrics import bleu, box_iou, cider, normalize_answer, rouge_l, vqa_correct  # noqa: E402
+from metrics import bleu, box_iou, calibration, cider, normalize_answer, rouge_l, vqa_correct  # noqa: E402
 
 
 def load(row: dict):
@@ -74,6 +74,7 @@ def main() -> None:
 
     acc = defaultdict(lambda: [0, 0])
     caps_p, caps_r, ious = [], [], defaultdict(list)
+    cal_c, cal_y = [], []
     t0 = time.time()
     done = 0
     with (args.out / "predictions.jsonl").open("w", encoding="utf-8") as fh:
@@ -92,6 +93,9 @@ def main() -> None:
             if row["task"] in ("vqa", "change_vqa"):
                 ok = vqa_correct(p["pred"], row["answer"], row.get("qtype"))
                 rec["correct"] = ok
+                if p.get("confidence") is not None:
+                    cal_c.append(p["confidence"])
+                    cal_y.append(ok)
                 for k in ("overall", f"{row['task']}/{row.get('qtype')}"):
                     acc[k][0] += int(ok)
                     acc[k][1] += 1
@@ -113,6 +117,8 @@ def main() -> None:
         metrics["stopped_early"] = f"time limit: scored {done} of {len(rows)} examples"
     if acc:
         metrics["vqa_accuracy"] = {k: {"acc": round(c / n, 4), "n": n} for k, (c, n) in sorted(acc.items())}
+    if cal_c:
+        metrics["calibration"] = calibration(cal_c, cal_y)
     if caps_p:
         b = defaultdict(float)
         for p, r in zip(caps_p, caps_r):
