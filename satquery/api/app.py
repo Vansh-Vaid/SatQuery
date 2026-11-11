@@ -123,6 +123,23 @@ class RateLimiter:
             return True
 
 
+def client_key(request: Request) -> str:
+    """The caller's address for rate limiting.
+
+    Not request.client: behind a proxy uvicorn may set that from the leftmost X-Forwarded-For entry, which
+    the caller writes. Each trusted proxy appends the address it saw, so the entry `trusted_proxy_hops` from
+    the right is the real caller as seen by the outermost proxy.
+    """
+    hops = settings.trusted_proxy_hops
+    if hops > 0:
+        hosts = [h.strip() for v in request.headers.getlist("x-forwarded-for") for h in v.split(",") if h.strip()]
+        if len(hosts) >= hops:
+            return hosts[-hops]
+        log.warning("expected %d proxy hop(s) in X-Forwarded-For, got %d; using the peer address", hops, len(hosts))
+    peer = request.scope.get("client")
+    return peer[0] if peer else "unknown"
+
+
 limiter = RateLimiter(settings.rate_limit_per_min)
 slots = threading.BoundedSemaphore(max(1, settings.max_concurrent))
 
@@ -130,7 +147,7 @@ slots = threading.BoundedSemaphore(max(1, settings.max_concurrent))
 @contextmanager
 def _guard(request: Request):
     """Per-client rate limit, then a bounded number of analyses running at once."""
-    if not limiter.allow(request.client.host if request.client else "unknown"):
+    if not limiter.allow(client_key(request)):
         raise HTTPException(429, "Too many requests from your address. Please wait a minute and try again.",
                             headers={"Retry-After": "60"})
     if not slots.acquire(timeout=settings.queue_timeout_s):

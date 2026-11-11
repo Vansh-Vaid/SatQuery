@@ -141,6 +141,7 @@ Tests: `python -m pytest -q` (CPU, ~30 s). VLM plumbing smoke test (tiny random 
 | `SATQUERY_VLM_ENDPOINT` | – | URL of `scripts/serve_vlm.py` when backend is `remote` |
 | `SATQUERY_CHANGE_CKPT` | – | Siamese U-Net checkpoint (enables learned change detection) |
 | `SATQUERY_RATE_LIMIT` | `0` (image: `20`) | analyses + input checks per client IP per minute; `0` = unlimited |
+| `SATQUERY_TRUSTED_PROXY_HOPS` | `0` (image: `1`) | proxies in front of the app that append to `X-Forwarded-For`; the client IP for rate limiting is the entry this many places from the right (the leftmost entries are written by the caller and can be forged). `0` = TCP peer address. Set it to the real number of proxies: too low lets callers forge their address, too high puts everyone behind one proxy address |
 | `SATQUERY_MAX_CONCURRENT` | `2` | analyses running at once; others wait up to `SATQUERY_QUEUE_TIMEOUT` |
 | `SATQUERY_QUEUE_TIMEOUT` | `60` | seconds a request waits for a free slot before a 503 "busy" |
 | `SATQUERY_MAX_UPLOAD_MB` | `200` (image: `100`) | per image; enforced while streaming, plus a body-size check |

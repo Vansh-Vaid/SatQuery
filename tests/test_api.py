@@ -67,3 +67,47 @@ def test_viewer_payload_and_report_bundle():
 
 def test_unknown_report_404():
     assert client.get("/api/report/doesnotexist.html").status_code == 404
+
+
+# ---- rate limiting behind a proxy: the caller cannot pick their own address -------------------------------
+def _behind_proxy(monkeypatch, hops: int, per_min: int):
+    import dataclasses
+
+    from satquery.api import app as app_module
+    monkeypatch.setattr(app_module, "settings", dataclasses.replace(app_module.settings, trusted_proxy_hops=hops))
+    monkeypatch.setattr(app_module, "limiter", app_module.RateLimiter(per_min))
+    return app_module
+
+
+def _request(xff=None, peer=("10.0.0.9", 5000)):
+    from starlette.requests import Request
+    headers = [(b"x-forwarded-for", v.encode()) for v in ([xff] if isinstance(xff, str) else xff or [])]
+    return Request({"type": "http", "method": "GET", "path": "/", "headers": headers, "client": peer})
+
+
+def test_client_key_uses_the_entry_the_proxy_appended(monkeypatch):
+    m = _behind_proxy(monkeypatch, hops=1, per_min=0)
+    assert m.client_key(_request("1.2.3.4")) == "1.2.3.4"
+    assert m.client_key(_request("6.6.6.6, 1.2.3.4")) == "1.2.3.4"             # forged entry on the left
+    assert m.client_key(_request(["6.6.6.6", "1.2.3.4"])) == "1.2.3.4"         # repeated header lines
+    assert m.client_key(_request(None)) == "10.0.0.9"                          # no header: peer address
+    m = _behind_proxy(monkeypatch, hops=2, per_min=0)
+    assert m.client_key(_request("6.6.6.6, 1.2.3.4, 10.1.1.1")) == "1.2.3.4"
+
+
+def test_client_key_without_a_proxy_ignores_the_header(monkeypatch):
+    m = _behind_proxy(monkeypatch, hops=0, per_min=0)
+    assert m.client_key(_request("1.2.3.4")) == "10.0.0.9"
+
+
+def test_forged_forwarded_for_does_not_reset_the_rate_limit(monkeypatch):
+    from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+    _behind_proxy(monkeypatch, hops=1, per_min=2)
+    # as the container runs it: uvicorn --proxy-headers --forwarded-allow-ips="*"
+    proxied = TestClient(ProxyHeadersMiddleware(app, trusted_hosts="*"))
+    codes = [proxied.post("/api/inspect", data={"demo": "single_s2", "pair_type": "single"},
+                         headers={"X-Forwarded-For": f"9.9.9.{i}, 1.2.3.4"}).status_code for i in range(3)]
+    assert codes == [200, 200, 429]                                           # 3rd call blocked despite new fake IP
+    other = proxied.post("/api/inspect", data={"demo": "single_s2", "pair_type": "single"},
+                         headers={"X-Forwarded-For": "5.6.7.8"})
+    assert other.status_code == 200                                            # a different caller is not blocked

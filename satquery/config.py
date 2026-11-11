@@ -61,6 +61,10 @@ class Settings:
     queue_timeout_s: float = field(default_factory=lambda: float(os.getenv("SATQUERY_QUEUE_TIMEOUT", "60")))
     # analyses per client IP per minute (0 = unlimited)
     rate_limit_per_min: int = field(default_factory=lambda: int(os.getenv("SATQUERY_RATE_LIMIT", "0")))
+    # reverse proxies in front of the app that each append the caller's address to X-Forwarded-For
+    # (Azure Container Apps ingress: 1). 0 = use the TCP peer address. The client is identified by the
+    # entry this many places from the right, which a caller cannot forge (the leftmost entries are theirs).
+    trusted_proxy_hops: int = field(default_factory=lambda: int(os.getenv("SATQUERY_TRUSTED_PROXY_HOPS", "0")))
 
     # --- Storage ---------------------------------------------------------------
     run_dir: Path = field(default_factory=lambda: Path(os.getenv("SATQUERY_RUN_DIR", "runs")))
