@@ -232,6 +232,17 @@ come from water physics, not from a search on these sites.
 - Bare soil is almost never right: under 1% of WorldCover in these cities, and confused with desert-coloured
   roofs in Cairo.
 
+### D18. VLM scoring: the exact training prompt, and the download moved off the GPU
+The first Kaggle run's scores were partly an artefact. Benchmark images are rendered PNGs; the loader cannot
+tell a false-colour SAR PNG from an optical one, so each S2 + S1 pair looked like two optical dates and the
+VLM tool asked a change question. Grounding answers were never parsed (Acc@0.5 = 0 for both models), and
+yes/no "count" questions were compared as numbers ("no" vs "no" marked wrong).
+*Fix:* benchmark rows carry the prompt they were built with and the tool uses it verbatim; an explicit task
+beats the guess from the image pair; non-numeric count answers are compared as text.
+*Also:* the LR schedule is re-fitted to the time limit during training (the run stopped at step 248 of 750
+with the learning rate near its peak), and the benchmark download, which streams 118 GB from Zenodo,
+runs in a CPU session so GPU quota is spent only on training and scoring.
+
 ### D9. Synthetic Sentinel-1/2 scenes with known ground truth for tests and demos
 They let tests assert correctness (fractions, change IoU, directions), not just "it runs", and make the
 demo work offline. Real-data accuracy is measured by `eval/` on the named benchmarks.

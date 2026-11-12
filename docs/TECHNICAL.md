@@ -20,7 +20,7 @@ pair**, ask a question in plain English, and SatQuery:
 
 | Problem-statement requirement | Implementation |
 |---|---|
-| RS adaptation of a visual component (BigEarthNet.txt **or open-source data**) | **Running now, trained on CPU:** ResNet-18 fine-tuned on EuroSAT Sentinel-2 (`rs_scene_classifier`, 95.7% test accuracy) and an RSVQA-LR VQA specialist built on it (`rsvqa_vqa`, 84.6% test accuracy). **GPU path, not yet run:** LoRA on Qwen3-VL-2B with BigEarthNet.txt (`training/finetune_vlm.py` → `rs_vlm`) |
+| RS adaptation of a visual component (BigEarthNet.txt **or open-source data**) | **Running now, trained on CPU:** ResNet-18 fine-tuned on EuroSAT Sentinel-2 (`rs_scene_classifier`, 95.7% test accuracy) and an RSVQA-LR VQA specialist built on it (`rsvqa_vqa`, 84.6% test accuracy). **GPU path, trained once on Kaggle (provisional scores, see Evaluation):** LoRA on Qwen3-VL-2B with BigEarthNet.txt (`training/finetune_vlm.py` → `rs_vlm`); not in the CPU deployment |
 | Single-image VQA (mandatory) | `rsvqa_vqa` (trained: presence, comparison, count, rural/urban), `rs_scene_classifier` (land-use questions), `landcover_reasoner` (measured cross-check), `rs_vlm` when a VLM is configured (free-form) |
 | + captioning **or** grounding | **Both**: `rs_vlm` captioning and box grounding; `region_grounder` mask + box grounding (works without the VLM); VLM boxes are verified against land-cover evidence |
 | Change description / change-VQA on a bi-temporal pair | `change_detector` (normalised CVA / SAR log-ratio / optional learned Siamese U-Net) → `change_semantics` (from→to transitions) → `change_qa` (yes/no, increase/decrease/unchanged, ratio, largest change, "what did X become", where, description) + `cdvqa_vqa` (trained on CDVQA; primary for change questions on optical pairs, cross-checked by `change_qa`); change map + magnitude heatmap |
@@ -223,7 +223,9 @@ python eval/run_eval.py --data eval/data/bentxt_bench.jsonl --mode vlm --out eva
 ```
 
 `--mode vlm` isolates the adapted model (run it once with and once without `SATQUERY_VLM_ADAPTER` to
-measure the adaptation gain); `--mode agent` measures the full system.
+measure the adaptation gain); `--mode agent` measures the full system. Runs stopped by a time limit score
+different numbers of examples; `python eval/compare_runs.py RUN_A RUN_B --names base LoRA` compares them on
+the examples they share.
 
 **Measured results** (all on held-out test data; reproduce with the commands above and below):
 
@@ -285,7 +287,21 @@ SAR and fused on the same pixels is the meaningful result. The test found one re
 (D17): ESA's L2A correction over hazy Cairo pushed the Nile to near-zero visible/NIR reflectance, so MNDWI
 went negative and optical water IoU was 0.01. A dark-pixel NDWI fallback raised it to 0.65.
 
-**Not yet run:** the BigEarthNet.txt VLM fine-tune (Kaggle notebook ready, `kaggle/satquery_vlm.ipynb`).
+**BigEarthNet.txt VLM fine-tune: trained once, scores provisional.** One Kaggle run
+(`kaggle/satquery_vlm.ipynb`, T4) trained the LoRA for 248 optimizer steps (about 4,000 examples, a third of
+the planned epoch) before its time limit. On the 189 benchmark examples both models were scored on:
+
+| | untrained Qwen3-VL-2B | + LoRA |
+|---|---|---|
+| VQA accuracy (n=93) | 9.7% | 60.2% |
+| caption BLEU-4 / ROUGE-L (n=45) | 0.03 / 0.16 | 0.23 / 0.42 |
+| grounding | not measured | not measured |
+
+These numbers are not final. That run's scorer re-guessed the rendered SAR PNG as an optical image, so
+the S2 + S1 pairs were prompted as change questions: grounding answers were never parsed into boxes,
+and the untrained model, which follows the prompt literally, is understated. Scoring now uses the exact
+training prompt; `kaggle/satquery_bench_data.ipynb` (CPU) and `kaggle/satquery_vlm_score.ipynb`
+(GPU, 1-2 h) re-score the same adapter on identical examples.
 
 ## Repository layout
 

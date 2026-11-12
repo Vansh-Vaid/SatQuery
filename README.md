@@ -108,7 +108,9 @@ The **large vision-language model** (free-form answers, written captions, optica
 graphics card. You can train it for free on Kaggle with
 [`kaggle/satquery_vlm.ipynb`](kaggle/satquery_vlm.ipynb): upload it to Kaggle, turn on a GPU and the
 internet, and click **Save & Run All**. It runs for up to 12 hours on its own and gives you a zip file with
-the trained model and its scores. The steps are at the top of the notebook.
+the trained model and its scores. The steps are at the top of the notebook. To re-score a trained model
+without retraining, `kaggle/satquery_bench_data.ipynb` (CPU) prepares the benchmark images once and
+`kaggle/satquery_vlm_score.ipynb` scores it in 1-2 GPU hours.
 
 ---
 
