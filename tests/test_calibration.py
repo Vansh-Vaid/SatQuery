@@ -38,3 +38,11 @@ def test_missing_confidence_is_skipped_and_empty_input_is_empty():
 @pytest.mark.parametrize("c", [0.0, 0.49, 0.5, 0.74, 0.75, 0.99])
 def test_eval_labels_match_agent_labels(c):
     assert _default_label(c) == confidence_label(c)
+
+
+def test_count_questions_with_word_answers_are_compared_as_words():
+    from metrics import vqa_correct
+    assert vqa_correct("no", "no", "count")
+    assert not vqa_correct("yes", "no", "count")
+    assert vqa_correct("c", "c", "count") and not vqa_correct("a", "c", "count")
+    assert vqa_correct("3", "3", "count") and vqa_correct("there are 7", "5", "count")  # RSVQA bins

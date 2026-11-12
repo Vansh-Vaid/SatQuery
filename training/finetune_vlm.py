@@ -27,6 +27,21 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from satquery.models.vlm_prompts import chat_messages  # noqa: E402
 
 
+def lr_factor(step: int, warmup: int, total: int) -> float:
+    """Linear warm-up, then cosine decay to zero at `total` (which may shrink during the run)."""
+    if step < warmup:
+        return (step + 1) / max(1, warmup)
+    return 0.5 * (1 + math.cos(math.pi * min(1.0, (step - warmup) / max(1, total - warmup))))
+
+
+def fit_total(total: int, step: int, elapsed_min: float, limit_min: float) -> int:
+    """Shrink the planned step count so the schedule ends inside the time limit at the speed so far
+    (the speed includes the periodic validation passes). Never grows, never ends before the next step."""
+    if not limit_min or step <= 0 or elapsed_min <= 0:
+        return total
+    return max(step + 1, min(total, int(limit_min / (elapsed_min / step))))
+
+
 def load_rows(path: Path, limit: int | None = None, seed: int = 0) -> list[dict]:
     rows = [json.loads(l) for l in path.open(encoding="utf-8") if l.strip()]
     random.Random(seed).shuffle(rows)
@@ -77,7 +92,7 @@ def main() -> None:
 
     import torch
     from peft import LoraConfig, get_peft_model
-    from transformers import AutoModelForImageTextToText, AutoProcessor, get_cosine_schedule_with_warmup
+    from transformers import AutoModelForImageTextToText, AutoProcessor
 
     torch.manual_seed(args.seed)
     dev = "cuda" if torch.cuda.is_available() else "cpu"
@@ -100,7 +115,10 @@ def main() -> None:
     steps_per_epoch = math.ceil(len(train) / args.grad_accum)
     total = args.max_steps or max(1, int(steps_per_epoch * args.epochs))
     opt = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=args.lr, weight_decay=0.0)
-    sched = get_cosine_schedule_with_warmup(opt, int(args.warmup * total), total)
+    # cosine schedule over a step count that is re-fitted to the time limit as the run goes, so the
+    # learning rate has decayed when time runs out instead of being cut off near its peak
+    plan = {"total": total, "warmup": max(1, int(args.warmup * total))}
+    sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda s: lr_factor(s, plan["warmup"], plan["total"]))
     scaler = torch.amp.GradScaler("cuda", enabled=(dev == "cuda" and not use_bf16))
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "training_args.json").write_text(json.dumps({**vars(args), "data": str(args.data),
@@ -153,6 +171,12 @@ def main() -> None:
             rec = {"step": step, "loss": round(run_loss, 4), "lr": sched.get_last_lr()[0],
                    "elapsed_min": round((time.time() - t0) / 60, 1)}
             run_loss = 0.0
+            if args.time_limit_min and step >= 5 and step % 5 == 0:
+                fitted = fit_total(total, step, (time.time() - t0) / 60, args.time_limit_min)
+                if fitted < total:
+                    print(f"at the current speed {total} steps would overrun the time limit; planning {fitted}")
+                    total = plan["total"] = fitted
+                    rec["planned_steps"] = total
             if args.time_limit_min and (time.time() - t0) / 60 >= args.time_limit_min and step < total:
                 print(f"time limit of {args.time_limit_min:g} min reached at step {step}/{total}; finishing")
                 total = step

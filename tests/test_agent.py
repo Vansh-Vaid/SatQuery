@@ -150,3 +150,18 @@ def test_claude_planner_failure_falls_back_to_rules(s2):
     ag = SatQueryAgent(registry=reg, planner=ClaudePlanner(reg, client=FakeClient({}, stop_reason="refusal")))
     r = ag.run("Is there any water?", [s2])
     assert r.status == "ok" and "fell back to the rule planner" in " ".join(r.trace["plan"]["corrections"])
+
+
+def test_vlm_explicit_mode_and_prompt_override_beat_the_pair_guess(s2, s2_t2):
+    # benchmarks pass the training prompt and task; a two-image input must not turn grounding into "change"
+    rep = validate_inputs([s2, s2_t2])
+    assert rep.config is InputConfig.BITEMPORAL
+    from satquery.tools.base import ToolContext
+    fake = FakeVLM(text='[{"bbox_2d": [100, 200, 500, 600], "label": "lake"}]')
+    res = RSVLM(backend=fake).run(ToolContext("Locate: the lake", rep.config, rep.rasters),
+                                 {"mode": "grounding", "prompt": "EXACT TRAINING PROMPT"})
+    assert fake.calls[-1][1] == "EXACT TRAINING PROMPT"
+    assert res.facts["task"] == "grounding" and len(res.boxes) == 1
+    # without an explicit mode a two-date pair is still read as a change question
+    RSVLM(backend=fake).run(ToolContext("What changed?", rep.config, rep.rasters), {"mode": "auto"})
+    assert "Compare Image 1" in fake.calls[-1][1]

@@ -74,18 +74,21 @@ class RSVLM(Tool):
         if not ok:
             return ToolResult(self.spec.name, "unavailable", notes=[why])
         mode = params.get("mode", "auto")
-        if ctx.config is InputConfig.BITEMPORAL:
-            task = "change"
-        elif mode != "auto":
+        if mode != "auto":          # an explicit task wins over the guess from the image pair
             task = mode
+        elif ctx.config is InputConfig.BITEMPORAL:
+            task = "change"
         else:
             q = ctx.query.lower()
             task = ("grounding" if re.search(r"\b(highlight|locate|where is|find|mark|box|point out|show me)\b", q)
                     else "caption" if re.search(r"\b(describe|caption|summar|overview)\b", q) else "vqa")
         rasters = ctx.rasters
         images = [render_for_vlm(r) for r in rasters]
-        prompt = build_prompt(task, ctx.query, [r.modality for r in rasters], [r.acquired for r in rasters],
-                              expression=params.get("expression") or None)
+        # `prompt` (benchmarks only, not exposed to the planner): the exact instruction the model was
+        # trained with, so scoring does not depend on how a rendered PNG's modality is re-guessed on load
+        prompt = params.get("prompt") or build_prompt(task, ctx.query, [r.modality for r in rasters],
+                                                      [r.acquired for r in rasters],
+                                                      expression=params.get("expression") or None)
         try:
             text, conf = self.backend.generate(images, prompt, int(params.get("max_new_tokens", 160)))
         except Exception as exc:  # network / OOM / missing weights -> degrade, never crash the request

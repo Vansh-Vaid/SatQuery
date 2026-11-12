@@ -46,7 +46,7 @@ def vqa_correct(pred: str, gt: str, qtype: str | None = None) -> bool:
     if qtype in {"change_or_not", "increase_or_not", "decrease_or_not", "change_ratio", "change_ratio_types",
                  "change_to_what", "largest_change", "smallest_change"}:
         return canonical_cdvqa(pred) == canonical_cdvqa(gt)
-    if qtype == "count":
+    if qtype == "count" and re.search(r"\d", str(gt)):   # numeric answers; "count" yes/no and MCQ fall through
         qp, qg = quantize_count(pred), quantize_count(gt)
         return qp is not None and qp == qg
     p, g = normalize_answer(pred), normalize_answer(gt)

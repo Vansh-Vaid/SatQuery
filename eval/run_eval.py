@@ -43,7 +43,9 @@ def predict_vlm(vlm, row):
     rasters = load(row)
     rep = validate_inputs(rasters, "bitemporal" if row["task"] == "change_vqa" else None)
     mode = {"vqa": "vqa", "caption": "caption", "grounding": "grounding"}.get(row["task"], "vqa")
-    res = vlm.run(ToolContext(row["query"], rep.config, rep.rasters), {**vlm.defaults(), "mode": mode})
+    # rows converted from a training-format file carry the exact prompt the model was trained with
+    params = {**vlm.defaults(), "mode": mode, "prompt": row.get("prebuilt_prompt")}
+    res = vlm.run(ToolContext(row["query"], rep.config, rep.rasters), params)
     return {"pred": res.facts.get("short_answer") or res.answer or "", "full": res.answer,
             "boxes": [[b.x0, b.y0, b.x1, b.y1] for b in res.boxes], "confidence": res.confidence,
             "tools": ["rs_vlm"], "status": res.status,
