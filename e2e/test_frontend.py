@@ -78,7 +78,8 @@ def test_console_runs_an_analysis(page, server, demo, query):
     page.goto(f"{server}/console?demo={demo}&q={query.replace(' ', '+')}")
     deck = page.get_by_role("textbox", name="Query")
     deck.wait_for()
-    assert deck.input_value() == query               # the deep link filled the query
+    # the deep link fills the query once the demo list has loaded (asynchronously)
+    playwright.expect(deck).to_have_value(query, timeout=30_000)
     run = page.get_by_role("button", name="Analyse →")
     playwright.expect(run).to_be_enabled(timeout=30_000)  # demo files fetched and validated
     run.click()
