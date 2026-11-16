@@ -51,7 +51,7 @@ jobs:
       # The built UI against the real server in headless Chromium: page loads, an analysis runs, no JS errors
       - name: Browser smoke test
         run: |
-          pip install playwright==1.55.0
+          pip install playwright==1.65.1
           python -m playwright install --with-deps chromium
           python -m pytest -q e2e
 
