@@ -10,3 +10,20 @@ eval/results/
 *.log
 .env
 frontend/node_modules/
+
+# IDE & Editor artifacts
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test & coverage artifacts
+.coverage
+htmlcov/
+
+# Temporary and partial downloads
+*.part
+
+# Operating system files
+.DS_Store
+Thumbs.db
