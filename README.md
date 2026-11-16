@@ -64,8 +64,11 @@ python -m venv .venv
 
 Then switch the terminal to that environment:
 
-- Windows: `.venv\Scripts\activate`
+- Windows (PowerShell): `.\.venv\Scripts\Activate.ps1`
+- Windows (Command Prompt): `.venv\Scripts\activate.bat`
 - macOS / Linux: `source .venv/bin/activate`
+
+> **Note for Windows PowerShell:** If script execution is restricted on your system, run `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` before activating.
 
 and install:
 
