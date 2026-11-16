@@ -103,8 +103,8 @@ def draw_boxes(rgb: np.ndarray, boxes: Iterable[dict], color: Sequence[int] = (2
         d.rectangle(xy, outline=tuple(color), width=2 * scale)
         if b.get("label"):
             tx, ty = b["x0"] + 2, max(0, b["y0"] - 14 * scale - 4)
-            l, t, r, bt = d.textbbox((tx, ty), str(b["label"]), font=font)
-            d.rectangle([l - 2, t - 1, r + 2, bt + 1], fill=(0, 0, 0))
+            left, top, right, bottom = d.textbbox((tx, ty), str(b["label"]), font=font)
+            d.rectangle([left - 2, top - 1, right + 2, bottom + 1], fill=(0, 0, 0))
             d.text((tx, ty), str(b["label"]), fill=tuple(color), font=font)
     return np.asarray(im)
 

@@ -1,0 +1,5 @@
+# Lint settings (CI runs `ruff check .` on every push; see .github/workflows/lint.yml)
+target-version = "py311"
+line-length = 120
+# Kaggle notebooks are run-once scripts in a compact style; the code they call is linted
+extend-exclude = ["*.ipynb", "satquery/web"]

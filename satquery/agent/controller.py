@@ -30,7 +30,7 @@ from satquery.imagery.render import (
     to_rgb,
     upscale_for_display,
 )
-from satquery.imagery.validate import InputConfig, validate_inputs
+from satquery.imagery.validate import validate_inputs
 from satquery.tools.base import Box, TaskType, ToolContext, ToolResult
 from satquery.tools.registry import Registry, default_registry
 
@@ -158,7 +158,7 @@ class SatQueryAgent:
                 "duration_ms": round(dur, 1),
                 "confidence": None if res.confidence is None else round(float(res.confidence), 3),
                 "output": res.answer, "facts": _jsonable(res.facts), "notes": res.notes,
-                "n_boxes": len(res.boxes), "layers": [l.name for l in res.layers],
+                "n_boxes": len(res.boxes), "layers": [lyr.name for lyr in res.layers],
             })
         trace["steps"] = steps_trace
 
@@ -310,8 +310,8 @@ class SatQueryAgent:
         if g is None or not g.ok or not g.layers:
             return boxes
         mask = np.zeros_like(g.layers[0].array, dtype=bool)
-        for l in g.layers:
-            mask |= l.array.astype(bool)
+        for lyr in g.layers:
+            mask |= lyr.array.astype(bool)
         out = []
         for b in boxes:
             y0, y1, x0, x1 = int(b.y0), max(int(b.y1), int(b.y0) + 1), int(b.x0), max(int(b.x1), int(b.x0) + 1)

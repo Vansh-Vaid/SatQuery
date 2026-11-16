@@ -16,7 +16,6 @@ from typing import Any
 import numpy as np
 
 from satquery.config import settings
-from satquery.imagery.raster import Modality
 from satquery.imagery.render import to_rgb
 from satquery.imagery.validate import InputConfig
 from satquery.tools.base import Layer, ParamSpec, Tool, ToolContext, ToolResult, ToolSpec, TaskType

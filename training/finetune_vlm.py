@@ -43,7 +43,7 @@ def fit_total(total: int, step: int, elapsed_min: float, limit_min: float) -> in
 
 
 def load_rows(path: Path, limit: int | None = None, seed: int = 0) -> list[dict]:
-    rows = [json.loads(l) for l in path.open(encoding="utf-8") if l.strip()]
+    rows = [json.loads(line) for line in path.open(encoding="utf-8") if line.strip()]
     random.Random(seed).shuffle(rows)
     return rows[:limit] if limit else rows
 

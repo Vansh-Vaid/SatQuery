@@ -78,7 +78,8 @@ def main() -> None:
 
     tr, va, te = (split_files(args.data, s) for s in ("train", "val", "test"))
     print(f"train {len(tr)}  val {len(va)}  test {len(te)}")
-    dl = lambda items, tf, shuffle: DataLoader(DS(items, tf), batch_size=args.bs, shuffle=shuffle, num_workers=0)
+    def dl(items, tf, shuffle):
+        return DataLoader(DS(items, tf), batch_size=args.bs, shuffle=shuffle, num_workers=0)
     train_dl, val_dl, test_dl = dl(tr, train_tf, True), dl(va, eval_tf, False), dl(te, eval_tf, False)
 
     model = models.resnet18(weights="IMAGENET1K_V1")

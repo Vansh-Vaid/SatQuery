@@ -162,7 +162,7 @@ class ToolResult:
         return {"tool": self.tool, "status": self.status, "answer": self.answer,
                 "confidence": None if self.confidence is None else round(float(self.confidence), 3),
                 "facts": self.facts, "boxes": [b.to_dict() for b in self.boxes],
-                "layers": [l.name for l in self.layers], "notes": self.notes}
+                "layers": [lyr.name for lyr in self.layers], "notes": self.notes}
 
 
 @dataclass

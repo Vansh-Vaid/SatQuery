@@ -19,7 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from metrics import bleu, box_iou, calibration, cider, normalize_answer, rouge_l, vqa_correct  # noqa: E402
+from metrics import bleu, box_iou, calibration, cider, rouge_l, vqa_correct  # noqa: E402
 
 
 def load(row: dict):
@@ -61,7 +61,7 @@ def main() -> None:
     ap.add_argument("--time-limit-min", type=float, default=0,
                     help="stop after this many minutes and score the examples done so far (0 = no limit)")
     args = ap.parse_args()
-    rows = [json.loads(l) for l in args.data.open(encoding="utf-8") if l.strip()]
+    rows = [json.loads(line) for line in args.data.open(encoding="utf-8") if line.strip()]
     if args.limit:
         rows = rows[: args.limit]
     args.out.mkdir(parents=True, exist_ok=True)

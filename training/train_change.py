@@ -49,7 +49,8 @@ class LevirCD:
                 a, b = b, a  # temporal symmetry
             gain = random.uniform(0.85, 1.15)
             b = np.clip(b * gain, 0, 1)
-        t = lambda x: torch.from_numpy(np.ascontiguousarray(x)).permute(2, 0, 1)
+        def t(x):
+            return torch.from_numpy(np.ascontiguousarray(x)).permute(2, 0, 1)
         return t(a), t(b), torch.from_numpy(np.ascontiguousarray(m))[None]
 
 

@@ -1,4 +1,3 @@
-import numpy as np
 import pytest
 
 from satquery.demo import synth as S
