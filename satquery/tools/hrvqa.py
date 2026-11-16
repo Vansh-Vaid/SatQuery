@@ -1,6 +1,7 @@
 """hr_vqa: VQA specialist for high-resolution (sub-metre) aerial images, trained on VRSBench.
 
-Frozen ImageNet ResNet-18 with a 3x3 spatial grid + bag-of-words question encoding, fused by elementwise
+Two checkpoint formats load: dense (14x14 ResNet-18 maps, question-conditioned FiLM and attention pooling;
+training/train_vrsbench_vqa_dense.py) and the earlier 3x3 grid + bag-of-words model fused by elementwise
 product, over the 300 most frequent VRSBench answers (object existence, quantity, colour, position, category,
 size, shape, direction, scene type, rural/urban). It abstains on images coarser than 5 m per pixel, where the
 RSVQA specialist (trained on 10 m Sentinel-2) applies instead.
@@ -37,13 +38,33 @@ def _load():
         if key not in _cache:
             import torch
             state = torch.load(key, map_location="cpu", weights_only=False)
-            model = build_model(len(state["vocab"]), img_dim=state["img_dim"], n_answers=len(state["answers"]),
-                                hidden=state.get("hidden", 512))
+            if state.get("arch") == "dense":      # 14x14 maps + attention (training/train_vrsbench_vqa_dense.py)
+                from satquery.models.hr_ground_net import DenseVQA, load_dense_encoder
+                model = DenseVQA(len(state["vocab"]), len(state["answers"]))
+                body = load_dense_encoder()
+            else:                                 # 3x3 grid (training/train_vrsbench_vqa.py)
+                model = build_model(len(state["vocab"]), img_dim=state["img_dim"], n_answers=len(state["answers"]),
+                                    hidden=state.get("hidden", 512))
+                body = load_encoder()
             model.load_state_dict(state["model"])
             model.eval()
             mp = Path(key + ".metrics.json")
-            _cache[key] = (model, state, load_encoder(), json.loads(mp.read_text()) if mp.exists() else {})
+            _cache[key] = (model, state, body, json.loads(mp.read_text()) if mp.exists() else {})
         return _cache[key]
+
+
+def _question_scorer(model, state, body, raster):
+    """Encode the image once; return question -> answer logits (numpy) for either checkpoint format."""
+    import torch
+
+    if state.get("arch") == "dense":
+        from satquery.models.hr_ground_net import encode_dense, project, token_ids
+        f = torch.from_numpy(project(encode_dense(body, [to_rgb(raster)]), state["pca_mean"], state["pca_comp"],
+                                     state["pca_scale"]))
+        return lambda q: model(f, torch.from_numpy(token_ids(q, state["vocab"])[None]))[0].numpy()
+    img = torch.from_numpy(((encode_batch(body, [to_rgb(raster)])[0] - state["feat_mean"]) / state["feat_std"])
+                           [None].astype(np.float32))
+    return lambda q: model(img, torch.from_numpy(encode_question(q, state["vocab"])[None]))[0].numpy()
 
 
 class HighResVQA(Tool):
@@ -81,11 +102,11 @@ class HighResVQA(Tool):
         describe = params.get("mode") == "describe"
         if not describe and len([t for t in tokens(ctx.query) if t in vocab and "_" not in t]) < int(params.get("min_known_words", 2)):
             return ToolResult(self.spec.name, "unsupported", notes=["Question is outside the VRSBench vocabulary; abstaining."])
-        img = torch.from_numpy(((encode_batch(body, [to_rgb(r)])[0] - state["feat_mean"]) / state["feat_std"])[None].astype(np.float32))
+        score = _question_scorer(model, state, body, r)
 
         def ask(question: str) -> tuple[str, float, np.ndarray]:
             with torch.inference_mode():
-                lg = model(img, torch.from_numpy(encode_question(question, vocab)[None]))[0].numpy()
+                lg = score(question)
             pr = np.exp(lg - lg.max())
             pr /= pr.sum()
             i = int(pr.argmax())
@@ -97,7 +118,7 @@ class HighResVQA(Tool):
         k = int(p.argmax())
         top = {state["answers"][i]: round(float(p[i]), 3) for i in np.argsort(-p)[:4]}
         facts = {"short_answer": ans, "answer_distribution": top,
-                 "model": "ImageNet ResNet-18 (3x3 grid) + bag-of-words, trained on VRSBench",
+                 "model": metrics.get("model") or "ImageNet ResNet-18 (3x3 grid) + bag-of-words, trained on VRSBench",
                  "vrsbench_test_accuracy": metrics.get("test_accuracy"),
                  "vrsbench_test_per_type": metrics.get("test_per_type")}
         notes = [] if r.gsd_m else ["Pixel size unknown; assumed to be high-resolution aerial imagery."]

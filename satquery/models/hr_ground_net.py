@@ -131,3 +131,33 @@ class DenseGrounder(nn.Module):
         p = logits.softmax(1)
         k = p.argmax(1)
         return boxes[torch.arange(len(k)), k], p[torch.arange(len(k)), k]
+
+
+class DenseVQA(nn.Module):
+    """Question answering over the same 14x14 map: the question modulates every cell (FiLM, as in the
+    grounder), two question-guided attention glimpses and the mean of the map are pooled, and a classifier
+    picks one of the training answers. The attention keeps where-and-how-many information that a 3x3
+    average loses."""
+
+    def __init__(self, n_vocab: int, n_answers: int, c_in: int = PROJ_DIM, d: int = 192, grid: int = GRID):
+        super().__init__()
+        self.inp = nn.Sequential(nn.Dropout2d(0.1), nn.Conv2d(c_in, d, 1), nn.GroupNorm(8, d), nn.ReLU())
+        self.pos = nn.Parameter(torch.randn(1, d, grid, grid) * 0.02)
+        self.emb = nn.EmbeddingBag(n_vocab + 1, d, mode="sum", padding_idx=n_vocab)
+        self.q = nn.Sequential(nn.ReLU(), nn.Dropout(0.2), nn.Linear(d, d), nn.ReLU())
+        self.blocks = nn.ModuleList([_FiLMBlock(d) for _ in range(3)])
+        self.att = nn.Conv2d(d, 2, 1)
+        self.head = nn.Sequential(nn.Linear(4 * d, 512), nn.ReLU(), nn.Dropout(0.3), nn.Linear(512, n_answers))
+        self.n_vocab = n_vocab
+
+    def forward(self, f: torch.Tensor, ids: torch.Tensor) -> torch.Tensor:
+        """f (B, C, G, G), ids (B, T) with -1 padding -> answer logits (B, n_answers)."""
+        ids = torch.where(ids < 0, torch.full_like(ids, self.n_vocab), ids)
+        q = self.q(self.emb(ids))
+        x = self.inp(f) + self.pos
+        for blk in self.blocks:
+            x = blk(x, q)
+        xf = x.flatten(2)                                         # (B, d, G*G)
+        a = self.att(x).flatten(2).softmax(-1)                    # (B, 2, G*G)
+        glimpses = torch.einsum("bkn,bdn->bkd", a, xf).flatten(1)  # (B, 2d)
+        return self.head(torch.cat([glimpses, xf.mean(-1), q], 1))

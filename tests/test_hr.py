@@ -109,3 +109,29 @@ def test_dense_checkpoint_runs_end_to_end(aerial, tmp_path, monkeypatch):
     b, (h, w) = res.boxes[0], aerial.shape
     assert 0 <= b.x0 < b.x1 <= w and 0 <= b.y0 < b.y1 <= h
     assert res.confidence in (0.1, 0.4) and 0 < res.facts["cell_probability"] <= 1
+
+
+def test_dense_vqa_checkpoint_runs_end_to_end(aerial, tmp_path, monkeypatch):
+    import numpy as np
+    import torch
+
+    from satquery.config import settings
+    from satquery.models.hr_ground_net import PROJ_DIM, RAW_DIM, DenseVQA
+    from satquery.tools import hrvqa
+
+    vocab = {w: i for i, w in enumerate(["how", "many", "vehicles", "are", "visible", "where", "is", "the"])}
+    answers = ["2", "3", "top-left", "yes"]
+    torch.manual_seed(0)
+    comp = np.linalg.qr(np.random.default_rng(0).normal(size=(RAW_DIM, PROJ_DIM)))[0].astype(np.float32)
+    ckpt = tmp_path / "vqa.pt"
+    torch.save({"arch": "dense", "model": DenseVQA(len(vocab), len(answers)).state_dict(), "vocab": vocab,
+                "answers": answers, "pca_mean": np.zeros(RAW_DIM, np.float32), "pca_comp": comp,
+                "pca_scale": np.ones(PROJ_DIM, np.float32)}, ckpt)
+    monkeypatch.setattr(hrvqa, "settings", dataclasses.replace(settings, vrsbench_checkpoint=str(ckpt)))
+
+    tool = HighResVQA()
+    rep = validate_inputs([aerial])
+    res = tool.run(ToolContext("How many vehicles are visible?", rep.config, rep.rasters), tool.defaults())
+    assert res.ok and res.facts["short_answer"] in answers and 0 < res.confidence <= 1
+    desc = tool.run(ToolContext("Describe the image", rep.config, rep.rasters), {**tool.defaults(), "mode": "describe"})
+    assert desc.status in ("ok", "unsupported")   # describe mode runs on the dense model too
