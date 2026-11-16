@@ -12,6 +12,7 @@ Used by training/train_vrsbench_grounding.py and satquery/tools/hrground.py.
 """
 from __future__ import annotations
 
+import functools
 import re
 
 import numpy as np
@@ -37,7 +38,9 @@ _V_SWAP = {"top": "bottom", "bottom": "top", "upper": "lower", "lower": "upper",
 
 
 # ---- image side --------------------------------------------------------------------------------------------
+@functools.lru_cache(maxsize=1)
 def load_dense_encoder() -> tuple[nn.Module, nn.Module]:
+    """Frozen ImageNet ResNet-18 split at layer3 / layer4; one shared copy per process (inference only)."""
     from torchvision import models
 
     m = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1).eval()
