@@ -263,10 +263,17 @@ python training/train_vrsbench_vqa.py --features-only       # encode images once
 python training/train_vrsbench_vqa.py --epochs 8            # ~8 min
 python training/train_vrsbench_grounding.py --features-only # dense 14x14 maps (~1-1.5 h CPU, resumable)
 python training/train_vrsbench_grounding.py                 # the 14.5% figure above is the earlier 3x3 model
+python eval/position_from_grounder.py --n 600              # answer "where is the X?" from the grounder box?
 python eval/calibration_report.py eval/results/rsvqa_lr eval/results/cdvqa_agent eval/results/vrs_agent_vqa --names RSVQA-LR CDVQA VRSBench --plot docs/images/calibration.png
 ```
 
 ![Confidence vs accuracy](images/calibration.png)
+
+**Position questions from the grounder box: not used.** `eval/position_from_grounder.py` scores the
+1,772 VRSBench "where is the X?" questions that have a place answer (top-left ... bottom-right). On a
+200-question sample, `hr_vqa` answers 24.5% correctly; taking the 3x3 cell of the 3x3-grid grounder's box
+answers 12.5%, about chance for nine places. So these questions stay with `hr_vqa`; the comparison is
+re-run whenever the grounder is retrained.
 
 VRSBench scoring here is strict exact match after normalisation; the VRSBench paper judges open answers with
 GPT-4, so the numbers are not directly comparable to its leaderboard.

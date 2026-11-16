@@ -98,7 +98,7 @@ def fit_pca(path: Path, imgs: ZipImages, names: list[str], enc, n_img: int = 600
     return pca
 
 
-def encode_all(cache: Path, imgs: ZipImages, names: list[str], enc, pca: dict, bs: int = 32) -> np.ndarray:
+def encode_all(cache: Path, imgs: ZipImages, names: list[str], enc, pca: dict, bs: int = 8) -> np.ndarray:
     """(N, PROJ_DIM, GRID, GRID) float16, resumable: progress is a row count next to a memory-mapped file."""
     done_marker = cache.with_suffix(".json")
     if cache.exists() and done_marker.exists() and json.loads(done_marker.read_text()) == names:
@@ -143,6 +143,8 @@ def main() -> None:
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--min-count", type=int, default=3, help="keep expression tokens seen at least this often")
     ap.add_argument("--features-only", action="store_true")
+    ap.add_argument("--encode-bs", type=int, default=8,
+                    help="images per encoder batch (memory peak grows with it; resumable at any value)")
     args = ap.parse_args()
     torch.manual_seed(0)
     random.seed(0)
@@ -160,13 +162,15 @@ def main() -> None:
     enc = load_dense_encoder()
     tr_imgs = ZipImages(args.root / "Images_train.zip")
     pca = fit_pca(cache / "dense_pca.npz", tr_imgs, tr_names, enc)
-    F_tr = encode_all(cache / "train_dense.npy", tr_imgs, tr_names, enc, pca)
-    F_te = encode_all(cache / "val_dense.npy", ZipImages(args.root / "Images_val.zip"), te_names, enc, pca)
+    F_tr = encode_all(cache / "train_dense.npy", tr_imgs, tr_names, enc, pca, args.encode_bs)
+    F_te = encode_all(cache / "val_dense.npy", ZipImages(args.root / "Images_val.zip"), te_names, enc, pca,
+                      args.encode_bs)
     if args.features_only:
         print(f"features ready ({(time.time() - t0) / 60:.1f} min)")
         return
-    print("loading feature maps into memory...", flush=True)
-    F_tr, F_te = torch.from_numpy(np.ascontiguousarray(F_tr)), torch.from_numpy(np.ascontiguousarray(F_te))
+    del enc  # the encoder is not needed for training
+    # feature maps stay memory-mapped on disk (train is ~2 GB in fp16); batches are read on demand, so peak
+    # memory is the model plus one batch, and the OS page cache keeps hot rows in RAM when there is room
     tr_idx, te_idx = {n: i for i, n in enumerate(tr_names)}, {n: i for i, n in enumerate(te_names)}
 
     held = set(random.Random(0).sample(tr_names, len(tr_names) // 10))
@@ -189,6 +193,10 @@ def main() -> None:
 
     data = {"train": tensors("train", True), "val": tensors("val", False), "test": tensors("test", False)}
     feats = {"train": F_tr, "val": F_tr, "test": F_te}
+
+    def gather(s: str, rows: torch.Tensor) -> torch.Tensor:
+        """Feature maps for these image rows, read from the memory-mapped cache as float32."""
+        return torch.from_numpy(np.asarray(feats[s][rows.numpy()], dtype=np.float32))
 
     # soft target: Gaussian (sigma = 1 cell) around the cell holding the box centre
     g = GRID
@@ -220,7 +228,7 @@ def main() -> None:
         im_, ids_, y_ = data[s]
         boxes, probs = [], []
         for k in range(0, len(y_), 512):
-            b, p = model.predict(feats[s][im_[k:k + 512]].float(), ids_[k:k + 512, 0])
+            b, p = model.predict(gather(s, im_[k:k + 512]), ids_[k:k + 512, 0])
             boxes.append(b)
             probs.append(p)
         model.train()
@@ -235,7 +243,7 @@ def main() -> None:
         for k in range(0, len(y), args.bs):
             b = perm[k:k + args.bs]
             v = torch.randint(0, 4, (len(b),))
-            f = feats["train"][im[b]].float()
+            f = gather("train", im[b])
             box = y[b].clone()
             hflip, vflip = (v == 1) | (v == 3), (v == 2) | (v == 3)
             f[hflip] = f[hflip].flip(-1)
