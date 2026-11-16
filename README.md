@@ -316,6 +316,8 @@ To check everything is working, run the automated tests: `python run.py --test`.
 - **[Technical reference](docs/TECHNICAL.md):** architecture, the tool list, configuration, training,
   evaluation commands and the full results.
 - **[Design decisions](docs/DECISIONS.md):** what was chosen, what the alternatives were, and why.
+- **[Problem statement](docs/problem_statement.md)** and **[UI design brief](docs/ui_design_brief.md):** the
+  brief the project answers and the visual direction the web app follows.
 
 | Folder | What's inside |
 |---|---|
@@ -323,8 +325,14 @@ To check everything is working, run the automated tests: `python run.py --test`.
 | `frontend/` | Source code of the web interface (React). A ready-built copy is already included. |
 | `training/` | Scripts that train the AI models |
 | `eval/` | Scripts that measure accuracy on benchmarks |
-| `tests/` | Automated tests |
+| `tests/` | Automated tests (`e2e/`: a browser test of the web app) |
 | `demo_data/` | The demo scenes |
+| `kaggle/` | Notebooks for the free-GPU VLM fine-tuning and scoring runs |
+| `scripts/` | Deployment (Azure), a command-line query runner and a remote VLM server |
+| `docs/` | Technical reference, design decisions, screenshots |
+
+Not in git (created locally): `checkpoints/` (trained models), `data/` (datasets), `eval/results/`
+(benchmark outputs).
 
 Handy commands:
 

@@ -1,7 +1,7 @@
 """Compare evaluation runs on the examples they all scored (runs cut short by a time limit score
 different numbers of examples, so their own summaries are not comparable).
 
-  python eval/compare_runs.py results/bench_base results/bench_lora --names base LoRA
+  python eval/compare_runs.py eval/results/bench_base eval/results/bench_lora --names base LoRA
 
 VQA answers are re-scored with the current `metrics.vqa_correct`; grounding uses each run's stored IoU.
 """

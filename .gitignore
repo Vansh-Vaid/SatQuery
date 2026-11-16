@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+.ruff_cache/
 .venv/
 runs/
 checkpoints/
@@ -27,3 +28,11 @@ htmlcov/
 # Operating system files
 .DS_Store
 Thumbs.db
+
+# Kaggle notebook downloads (extract models into checkpoints/, eval outputs into eval/results/)
+/results/
+/satquery-vlm-lora/
+*.zip
+__results___files/
+__huggingface_repos__.json
+__notebook__.ipynb
