@@ -1,0 +1,38 @@
+# The UI is served from the committed build in satquery/web/dist. This checks that the React source
+# typechecks and builds, and that the committed build is what the source produces (a stale build would
+# deploy an old UI).
+name: Frontend
+
+on:
+  push:
+    branches: [main]
+    paths: ["frontend/**", "satquery/web/**", ".github/workflows/frontend.yml"]
+  pull_request:
+    paths: ["frontend/**", "satquery/web/**", ".github/workflows/frontend.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run build          # tsc --noEmit, then vite build into ../satquery/web/dist
+      - name: Committed build matches the source
+        run: |
+          if [ -n "$(git status --porcelain -- ../satquery/web/dist)" ]; then
+            git status --short -- ../satquery/web/dist
+            echo "::error::satquery/web/dist is out of date: run 'npm run build' in frontend/ and commit the result"
+            exit 1
+          fi

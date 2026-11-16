@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ["satquery/**", "tests/**", "demo_data/**", "Dockerfile", ".dockerignore", "requirements.txt", "run.py", "pytest.ini",
+    paths: ["satquery/**", "tests/**", "demo_data/**", "Dockerfile", ".dockerignore", "requirements.txt", "run.py", "pytest.ini", "e2e/**",
             ".github/workflows/build-image.yml"]
 
 permissions:
@@ -47,6 +47,13 @@ jobs:
 
       - name: Run tests
         run: python -m pytest -q
+
+      # The built UI against the real server in headless Chromium: page loads, an analysis runs, no JS errors
+      - name: Browser smoke test
+        run: |
+          pip install playwright==1.55.0
+          python -m playwright install --with-deps chromium
+          python -m pytest -q e2e
 
       - name: Image name (lower case)
         id: img
