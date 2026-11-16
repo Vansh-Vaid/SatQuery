@@ -31,10 +31,12 @@ RSVQA_FILES = [f"LR_split_{s}_{k}.json" for s in ("train", "val", "test") for k 
 
 
 def say(msg: str) -> None:
+    """Print an indented status message to standard output."""
     print(f"  {msg}", flush=True)
 
 
 def check_python_and_packages() -> bool:
+    """Validate that Python version meets the minimum requirement and all required packages are importable."""
     if sys.version_info < (3, 10):
         say(f"SatQuery needs Python 3.10 or newer (you have {sys.version.split()[0]}).")
         return False
@@ -47,6 +49,7 @@ def check_python_and_packages() -> bool:
 
 
 def free_port(preferred: int) -> int:
+    """Find the next available TCP port starting from the preferred port."""
     for port in [preferred] + list(range(preferred + 1, preferred + 20)):
         with socket.socket() as s:
             if s.connect_ex(("127.0.0.1", port)) != 0:
@@ -55,6 +58,7 @@ def free_port(preferred: int) -> int:
 
 
 def download(url: str, dest: Path) -> None:
+    """Download a file via HTTP to destination with an atomic rename from a temporary file."""
     if dest.exists() and dest.stat().st_size > 0:
         return
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -131,6 +135,7 @@ def setup_highres() -> int:
 
 
 def start(port: int, open_browser: bool) -> int:
+    """Initialize demo data and launch the SatQuery Uvicorn web service."""
     print("\nSatQuery AI")
     if not check_python_and_packages():
         return 1
@@ -155,6 +160,7 @@ def start(port: int, open_browser: bool) -> int:
 
 
 def main() -> int:
+    """Parse command line arguments and execute requested launcher action."""
     ap = argparse.ArgumentParser(description="SatQuery AI launcher")
     ap.add_argument("--setup-models", action="store_true", help="download data and train the AI models")
     ap.add_argument("--setup-highres", action="store_true", help="optional: high-resolution aerial models (VRSBench, ~12 GB)")
