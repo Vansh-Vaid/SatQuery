@@ -3,17 +3,14 @@
 **Ask a question about a satellite image in plain English, and get an answer with a map, a confidence
 score and a record of how the answer was reached.**
 
-**Try it online:**
-- **Web app:** https://satquery.happysky-a511d77c.koreacentral.azurecontainerapps.io
-- **Analysis console:** https://satquery.happysky-a511d77c.koreacentral.azurecontainerapps.io/console
-
-If nobody has used it for a while, the first load takes about a minute while it starts up.
+> **Try it online:** the live demo is linked in this repository's **About** panel (top right of the GitHub
+> page). It sleeps when idle, so the first visit after a quiet spell takes about a minute to wake up.
 
 ![SatQuery landing page](docs/images/landing.jpg)
 
-You give SatQuery one or two satellite images and a question such as *"Is there water in this image?"* or
-*"Has the built-up area grown since last year?"*. SatQuery works out which analysis tools the question
-needs, runs them, checks their results against each other, and shows you:
+Give SatQuery one or two satellite images and a question, such as *"Is there water in this image?"* or
+*"Has the built-up area grown since last year?"*. It decides which analysis tools the question needs,
+runs them, checks their results against each other, and returns:
 
 - **the answer**, in a sentence;
 - **where** it found it, highlighted on the image;
@@ -100,20 +97,26 @@ enough. It keeps about 1 GB on disk, but the change dataset is streamed from a c
 images with every question, so expect about 17 GB of download traffic. If it stops part-way, run the
 same command again; it picks up where it left off.
 
-For **sharp aerial photos** (objects such as planes, ships and vehicles), there is one more optional step.
-It downloads about 12 GB, so it is kept separate:
+For **sharp aerial photos** (planes, ships, vehicles, sports fields), install the two high-resolution
+models used by the live demo. This is a 30 MB download of models that are already trained:
 
 ```bash
 python run.py --setup-highres
 ```
 
-The **large vision-language model** (free-form answers, written captions, optical + radar together) needs a
-graphics card. You can train it for free on Kaggle with
-[`kaggle/satquery_vlm.ipynb`](kaggle/satquery_vlm.ipynb): upload it to Kaggle, turn on a GPU and the
-internet, and click **Save & Run All**. It runs for up to 12 hours on its own and gives you a zip file with
-the trained model and its scores. The steps are at the top of the notebook. To re-score a trained model
-without retraining, `kaggle/satquery_bench_data.ipynb` (CPU) prepares the benchmark images once and
-`kaggle/satquery_vlm_score.ipynb` scores it in 1-2 GPU hours.
+### Optional: train on a free GPU (Kaggle)
+
+Some models train far faster on a graphics card. Kaggle lends one for free; each notebook below runs on
+its own once you upload it, switch on **GPU** and **Internet** in the notebook settings, and choose
+**Save & Run All**. The steps are written at the top of each notebook.
+
+| Notebook | What it trains | Time |
+|---|---|---|
+| [`kaggle/satquery_hr_train.ipynb`](kaggle/satquery_hr_train.ipynb) | The two high-resolution models (object finder and question answerer) | about 45 minutes |
+| [`kaggle/satquery_vlm.ipynb`](kaggle/satquery_vlm.ipynb) | The large vision-language model (free-form answers, captions, optical + radar together) | up to 12 hours |
+| [`kaggle/satquery_bench_data.ipynb`](kaggle/satquery_bench_data.ipynb) + [`satquery_vlm_score.ipynb`](kaggle/satquery_vlm_score.ipynb) | Re-scores a trained vision-language model without retraining it | 1-2 GPU hours |
+
+Each notebook ends with a zip file of the trained model and its test scores.
 
 ---
 
@@ -194,8 +197,8 @@ Everything below was measured on test data the models never saw during training.
 ![Optical + radar test on six real cities](docs/images/real_pairs.jpg)
 
 Before the trained models were added, the single-image test scored 41.8%, the change test 18.7% and the
-sharp-photo test 23.8%, about as good as guessing. Object boxes were never found at all (0%). For comparison, the research team that created the change benchmark reported 67.7%
-with their own model.
+sharp-photo test 23.8%, little better than guessing, and no object was ever boxed correctly (0%). For
+comparison, the research team that created the change benchmark reported 67.7% with their own model.
 
 ## What it can't do yet
 
@@ -206,9 +209,9 @@ Being honest about the limits:
   included; see Get started).
 - **Captions** are short sentences built from the models' own answers about the image (setting, main
   object, how many, where) plus the measured land cover. They are not written freely.
-- **Object boxes** in sharp aerial photos are approximate: right about 1 time in 7, mostly for large
-  objects such as sports fields and airplanes, rarely for small vehicles. The app always shows them with
-  low confidence.
+- **Object boxes** in sharp aerial photos are right about 2 times in 5 (38.5%). Large objects are found
+  reliably (tennis courts 79%, airplanes 64%); small ones much less often (ships 26%, vehicles 14%). Each
+  box comes with a confidence measured on the benchmark, so weak boxes are labelled as such.
 - **Change questions** are right about two times in three on real image pairs (65%, see above). The
   hardest are "what percentage changed?" and "what is the smallest change?".
 - **Optical + radar maps** are right for about 4 pixels in 5 on real image pairs (see above). Bare soil
@@ -222,10 +225,8 @@ Being honest about the limits:
 
 ## Put it online
 
-SatQuery runs as a website anyone can open. It needs about 0.6 GB of memory and no graphics card.
-
-**Live demo:** https://satquery.happysky-a511d77c.koreacentral.azurecontainerapps.io (it switches off when
-nobody is using it, so the first visit after a pause takes about a minute).
+SatQuery runs as a website anyone can open. It needs about 0.6 GB of memory and no graphics card. The
+live demo (linked in the **About** panel) is hosted exactly as described below.
 
 ### How the live demo is hosted: GitHub builds it, Azure runs it
 
@@ -327,7 +328,7 @@ To check everything is working, run the automated tests: `python run.py --test`.
 | `eval/` | Scripts that measure accuracy on benchmarks |
 | `tests/` | Automated tests (`e2e/`: a browser test of the web app) |
 | `demo_data/` | The demo scenes |
-| `kaggle/` | Notebooks for the free-GPU VLM fine-tuning and scoring runs |
+| `kaggle/` | Free-GPU training notebooks: high-resolution models, vision-language model, scoring |
 | `scripts/` | Deployment (Azure), a command-line query runner and a remote VLM server |
 | `docs/` | Technical reference, design decisions, screenshots |
 

@@ -2,7 +2,7 @@
 
     python run.py                 start the app and open it in your browser
     python run.py --setup-models  download the training data and train the three AI models (~45 min, CPU is fine)
-    python run.py --setup-highres optional: models for sharp aerial photos (VRSBench, ~12 GB download)
+    python run.py --setup-highres optional: models for sharp aerial photos (VRSBench, ~30 MB download)
     python run.py --test          run the automated tests
     python run.py --port 8080     use a different port
 """
@@ -55,6 +55,9 @@ def free_port(preferred: int) -> int:
             if s.connect_ex(("127.0.0.1", port)) != 0:
                 return port
     return preferred
+
+
+MODELS_RELEASE = "https://github.com/Vansh-Vaid/SatQuery/releases/download/models-v1/"
 
 
 def download(url: str, dest: Path) -> None:
@@ -113,23 +116,12 @@ def setup_models() -> int:
 
 
 def setup_highres() -> int:
-    """VRSBench: high-resolution question answering, descriptions and approximate object boxes (~12 GB download)."""
-    if importlib.util.find_spec("torch") is None:
-        say("Training needs PyTorch. Install it with:   pip install torch torchvision")
-        return 1
-    vb = ROOT / "data/vrsbench"
-    print("\n[1/3] VRSBench (high-resolution aerial images, about 12 GB; resumes if interrupted)")
-    base = "https://huggingface.co/datasets/xiang709/VRSBench/resolve/main/"
-    for f in ("VRSBench_train.json", "VRSBench_EVAL_vqa.json", "VRSBench_EVAL_referring.json",
-              "VRSBench_EVAL_Cap.json", "Images_val.zip", "Images_train.zip"):
-        download(base + f, vb / f)
-    py = [sys.executable]
-    if not (ROOT / "checkpoints/vrsbench_vqa.pt").exists():
-        print("\n[2/3] Training the high-resolution question model (about 25 minutes on a laptop CPU)")
-        subprocess.run(py + ["training/train_vrsbench_vqa.py", "--root", str(vb), "--epochs", "8"], cwd=ROOT, check=True)
-    if not (ROOT / "checkpoints/vrsbench_ground.pt").exists():
-        print("\n[3/3] Training the object locator (about 3 minutes)")
-        subprocess.run(py + ["training/train_vrsbench_grounding.py", "--root", str(vb), "--epochs", "12"], cwd=ROOT, check=True)
+    """Install the trained high-resolution models (VRSBench question answering and object boxes) that the live
+    app uses, from the project's public GitHub release (~30 MB). To train them yourself instead, see
+    kaggle/satquery_hr_train.ipynb (free GPU, ~45 min) or docs/TECHNICAL.md (CPU, several hours)."""
+    print("\nHigh-resolution models (sharp aerial photos: planes, ships, vehicles, sports fields ...)")
+    for f in ("vrsbench_vqa.pt", "vrsbench_vqa.pt.metrics.json", "vrsbench_ground.pt", "vrsbench_ground.pt.metrics.json"):
+        download(MODELS_RELEASE + f, ROOT / "checkpoints" / f)
     print("\nDone. Start the app with:   python run.py")
     return 0
 
@@ -163,7 +155,7 @@ def main() -> int:
     """Parse command line arguments and execute requested launcher action."""
     ap = argparse.ArgumentParser(description="SatQuery AI launcher")
     ap.add_argument("--setup-models", action="store_true", help="download data and train the AI models")
-    ap.add_argument("--setup-highres", action="store_true", help="optional: high-resolution aerial models (VRSBench, ~12 GB)")
+    ap.add_argument("--setup-highres", action="store_true", help="optional: high-resolution aerial models (VRSBench, ~30 MB download)")
     ap.add_argument("--test", action="store_true", help="run the automated tests")
     ap.add_argument("--port", type=int, default=8000)
     ap.add_argument("--no-browser", action="store_true", help="do not open a browser window")
