@@ -150,6 +150,7 @@ Data: the mirror (`ljx620/CDVQA`) duplicates both images into every question (ab
 resumes per shard.
 
 ### D15. High-resolution imagery: VRSBench-trained specialists, routed by pixel size
+*(The 3×3-grid models below were replaced by dense 14×14 models in D19; routing by pixel size is unchanged.)*
 VRSBench is 0.5-1 m Google Earth imagery about individual objects. Every earlier model was trained on 10 m
 Sentinel data. The baseline agent scored 23.8% on its VQA sample, 0% on grounding (only land-cover regions
 could be boxed) and low caption overlap.
