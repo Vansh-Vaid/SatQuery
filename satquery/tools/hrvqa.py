@@ -9,6 +9,7 @@ RSVQA specialist (trained on 10 m Sentinel-2) applies instead.
 from __future__ import annotations
 
 import json
+import re
 import threading
 from pathlib import Path
 from typing import Any
@@ -21,10 +22,15 @@ from satquery.imagery.validate import InputConfig
 from satquery.models.hr_features import encode_batch, load_encoder
 from satquery.models.rsvqa_features import build_model, encode_question, tokens
 from satquery.tools.base import ParamSpec, TaskType, Tool, ToolContext, ToolResult, ToolSpec
+from satquery.tools.hrground import grid_label  # noqa: F401  (re-exported for eval/position_from_grounder.py)
 
 _lock = threading.Lock()
 _cache: dict[str, Any] = {}
 MAX_GSD_M = 5.0
+# "Where is the <object> (located)?" -> answered from hr_grounder's box when that measures better (see run)
+WHERE = re.compile(r"^(?:where is|where are|what is the (?:position|location) of) the (?P<obj>[a-z\- ]+?)"
+                   r"(?: located| positioned| situated| placed)?(?: in the image| in this image)?\??$", re.I)
+
 
 
 def _path(p: str) -> Path:
@@ -80,7 +86,9 @@ class HighResVQA(Tool):
         params=(ParamSpec("min_known_words", "int", 2, "Minimum question words known to the model before it "
                                                        "answers (otherwise it abstains)", 1, 10),
                 ParamSpec("mode", "enum", "qa", "qa: answer the question | describe: compose a scene description "
-                                                "from the model's own answers", choices=("qa", "describe"))),
+                                                "from the model's own answers", choices=("qa", "describe")),
+                ParamSpec("position_from_box", "bool", True, "Answer 'where is the X?' from the box hr_grounder "
+                                                             "draws, when the grounder measures more accurate")),
     )
 
     def available(self) -> tuple[bool, str]:
@@ -102,6 +110,11 @@ class HighResVQA(Tool):
         describe = params.get("mode") == "describe"
         if not describe and len([t for t in tokens(ctx.query) if t in vocab and "_" not in t]) < int(params.get("min_known_words", 2)):
             return ToolResult(self.spec.name, "unsupported", notes=["Question is outside the VRSBench vocabulary; abstaining."])
+        m = None if describe or not params.get("position_from_box", True) else WHERE.match(ctx.query.strip())
+        if m:
+            placed = self._position_from_box(ctx, m.group("obj").strip(), metrics)
+            if placed is not None:
+                return placed
         score = _question_scorer(model, state, body, r)
 
         def ask(question: str) -> tuple[str, float, np.ndarray]:
@@ -124,6 +137,27 @@ class HighResVQA(Tool):
         notes = [] if r.gsd_m else ["Pixel size unknown; assumed to be high-resolution aerial imagery."]
         return ToolResult(self.spec.name, answer=f"{ans[0].upper()}{ans[1:]}. ({100 * p[k]:.0f}% model confidence)",
                           facts=facts, confidence=float(p[k]), notes=notes)
+
+    def _position_from_box(self, ctx: ToolContext, obj: str, metrics: dict) -> ToolResult | None:
+        """The 3x3 cell holding the centre of hr_grounder's box for "the <obj>". Used only when the grounder's
+        measured Acc@0.5 beats this model's own position accuracy (dense grounder: 39.3% vs 19.7% on 300
+        VRSBench "where is the X" questions, eval/position_from_grounder.py); otherwise None (answer as usual)."""
+        from satquery.tools.hrground import HighResGrounder
+
+        g = HighResGrounder()
+        if not g.available()[0]:
+            return None
+        res = g.run(ToolContext(f"the {obj}", ctx.config, ctx.rasters), g.defaults())
+        own = (metrics.get("test_per_type") or {}).get("object position")
+        if not res.ok or own is None or (res.facts.get("vrsbench_acc_at_0.5") or 0) <= own:
+            return None
+        b = res.facts["box_norm"]
+        place = grid_label((b[0] + b[2]) / 2, (b[1] + b[3]) / 2)
+        return ToolResult(self.spec.name, answer=f"{place[0].upper()}{place[1:]}. (from the box drawn around the {obj})",
+                          boxes=res.boxes, confidence=res.confidence,
+                          facts={"short_answer": place, "box_norm": b, "answered_by": "hr_grounder box",
+                                 "model": res.facts.get("model") or "dense 14x14 grounder (hr_ground_net)",
+                                 "vrsbench_acc_at_0.5": res.facts.get("vrsbench_acc_at_0.5")})
 
     def _describe(self, ask, metrics) -> ToolResult:
         """A scene description built only from the model's own answers about this image (no templates from

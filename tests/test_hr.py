@@ -135,3 +135,49 @@ def test_dense_vqa_checkpoint_runs_end_to_end(aerial, tmp_path, monkeypatch):
     assert res.ok and res.facts["short_answer"] in answers and 0 < res.confidence <= 1
     desc = tool.run(ToolContext("Describe the image", rep.config, rep.rasters), {**tool.defaults(), "mode": "describe"})
     assert desc.status in ("ok", "unsupported")   # describe mode runs on the dense model too
+
+
+def test_where_questions_use_the_grounder_box_only_when_it_measures_better(aerial, tmp_path, monkeypatch):
+    import json
+
+    import numpy as np
+    import torch
+
+    from satquery.config import settings
+    from satquery.models.hr_ground_net import PROJ_DIM, RAW_DIM, DenseGrounder, DenseVQA
+    from satquery.tools import hrground, hrvqa
+
+    comp = np.linalg.qr(np.random.default_rng(0).normal(size=(RAW_DIM, PROJ_DIM)))[0].astype(np.float32)
+    pca = {"pca_mean": np.zeros(RAW_DIM, np.float32), "pca_comp": comp, "pca_scale": np.ones(PROJ_DIM, np.float32)}
+    gv = {w: i for i, w in enumerate(["the", "large", "vehicle"])}
+    gck = tmp_path / "ground.pt"
+    torch.save({"arch": "dense", "model": DenseGrounder(len(gv)).state_dict(), "vocab": gv, **pca,
+                "metrics": {"test_acc_at_0.5": 0.38, "confidence_table": [{"p_max": 1.0, "acc": 0.4}]}}, gck)
+    monkeypatch.setattr(hrground, "settings", dataclasses.replace(settings, vrsbench_ground_checkpoint=str(gck)))
+    qv = {w: i for i, w in enumerate(["where", "is", "the", "large", "vehicle", "located"])}
+    answers = ["top-left", "center", "yes"]
+
+    def vqa_with_position_accuracy(acc: float) -> HighResVQA:
+        ck = tmp_path / f"vqa_{acc}.pt"
+        torch.save({"arch": "dense", "model": DenseVQA(len(qv), len(answers)).state_dict(), "vocab": qv,
+                    "answers": answers, **pca}, ck)
+        (tmp_path / f"vqa_{acc}.pt.metrics.json").write_text(json.dumps({"test_per_type": {"object position": acc}}))
+        monkeypatch.setattr(hrvqa, "settings", dataclasses.replace(settings, vrsbench_checkpoint=str(ck)))
+        return HighResVQA()
+
+    rep = validate_inputs([aerial])
+    ctx = ToolContext("Where is the large vehicle located?", rep.config, rep.rasters)
+    tool = vqa_with_position_accuracy(0.2)                    # grounder 38% > 20%: answer from its box
+    res = tool.run(ctx, tool.defaults())
+    assert res.facts["answered_by"] == "hr_grounder box" and len(res.boxes) == 1
+    assert res.facts["short_answer"] in {f"{r}-{c}" for r in ("top", "middle", "bottom")
+                                         for c in ("left", "middle", "right")} | {"center"}
+    assert "answered_by" not in tool.run(ctx, {**tool.defaults(), "position_from_box": False}).facts
+    tool = vqa_with_position_accuracy(0.5)                    # grounder 38% < 50%: the VQA model answers
+    assert "answered_by" not in tool.run(ctx, tool.defaults()).facts
+
+
+def test_grid_label_uses_the_dataset_place_words():
+    from satquery.tools.hrvqa import grid_label
+    assert grid_label(0.1, 0.1) == "top-left" and grid_label(0.5, 0.5) == "center"
+    assert grid_label(0.9, 0.5) == "middle-right" and grid_label(0.5, 0.9) == "bottom-middle"

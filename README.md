@@ -184,10 +184,10 @@ Everything below was measured on test data the models never saw during training.
 | – "Did X change / increase / decrease?" | 69–79% |
 | – "What did X change into?" | 55.0% |
 | – "What percentage changed?" (in 10% ranges) | 32.0% |
-| Answering questions about **sharp aerial photos** (objects such as planes, ships, vehicles; VRSBench, 37,409 questions) | **54.0%** correct |
-| – "Is there a ...?" | 87.5% |
-| – "Where is the ...?" (top-left, bottom-right, ...) | 37.1% |
-| Drawing a box around a described object in a sharp aerial photo (VRSBench, 16,159 descriptions) | **14.5%** correct |
+| Answering questions about **sharp aerial photos** (objects such as planes, ships, vehicles; VRSBench, 37,409 questions) | **56.0%** correct |
+| – "Is there a ...?" | 88.0% |
+| – "Where is the ...?" (top-left, bottom-right, ...), answered from the object's box | 39.3% |
+| Drawing a box around a described object in a sharp aerial photo (VRSBench, 16,159 descriptions) | **38.5%** correct |
 | Mapping water, vegetation and built-up land on **real optical + radar pairs** (6 cities, about 2 million pixels, checked against the ESA WorldCover map) | **80%** of pixels correct with both images (optical alone 61%, radar alone 74%) |
 | – under monsoon clouds (Dhaka) | 78% with both images (optical alone 35%) |
 

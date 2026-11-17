@@ -76,6 +76,13 @@ def _load():
         return _cache[key]
 
 
+def grid_label(cx: float, cy: float) -> str:
+    """Box centre (0-1) -> VRSBench's 3x3 place words (top-left ... center ... bottom-right)."""
+    row = "top" if cy < 1 / 3 else "bottom" if cy > 2 / 3 else "middle"
+    col = "left" if cx < 1 / 3 else "right" if cx > 2 / 3 else "middle"
+    return "center" if row == col == "middle" else f"{row}-{col}"
+
+
 def measured_confidence(cell_p: float, table: list[dict]) -> float:
     """Test-set Acc@0.5 of the probability bin `cell_p` falls in (bins sorted by p_max)."""
     if not table:
@@ -137,12 +144,14 @@ class HighResGrounder(Tool):
         box = Box(float(b[0] * w), float(b[1] * h), float(b[2] * w), float(b[3] * h), label=label, score=conf,
                   source=self.spec.name)
         acc = metrics.get("test_acc_at_0.5")
-        answer = (f"Approximate location of the {label}: the box covers {100 * area:.1f}% of the image"
+        place = grid_label(float(b[0] + b[2]) / 2, float(b[1] + b[3]) / 2)
+        answer = (f"{place[0].upper()}{place[1:]} of the image. Approximate location of the {label}: "
+                  f"the box covers {100 * area:.1f}% of the image"
                   f" (x {100 * b[0]:.0f}-{100 * b[2]:.0f}%, y {100 * b[1]:.0f}-{100 * b[3]:.0f}% from the top-left)."
                   + (f" This locator finds the right object about {100 * acc:.0f}% of the time on VRSBench, "
                      "mostly for large objects." if acc else ""))
         return ToolResult(self.spec.name, answer=answer, boxes=[box], confidence=conf,
-                          facts={"short_answer": "approximate box", "object_mentioned": bool(obj),
+                          facts={"short_answer": place, "object_mentioned": bool(obj),
                                  "box_norm": [round(float(v), 3) for v in b],
                                  "cell_probability": None if cell_p is None else round(cell_p, 4),
                                  "vrsbench_acc_at_0.5": acc, "vrsbench_acc_by_class": metrics.get("acc_by_class")})

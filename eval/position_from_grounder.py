@@ -2,7 +2,7 @@
 
 On VRSBench's eval set, takes the object-position questions of the form "Where is the <object> located?"
 whose answer is a place in the image (top-left ... center ... bottom-right), and scores on the same questions:
-  * hr_vqa      - the VQA specialist's answer (what the app gives today)
+  * hr_vqa      - the VQA model's own answer (hr_vqa with position_from_box off)
   * grounder    - the 3x3 cell holding the centre of hr_grounder's box for "the <object>"
   * gated       - the grounder when its confidence is at least --gate, otherwise hr_vqa
 with the same comparator as the VQA benchmark (metrics.vqa_correct).
@@ -24,17 +24,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-WHERE = re.compile(r"^(?:where is|where are|what is the (?:position|location) of) the (?P<obj>[a-z\- ]+?)"
-                   r"(?: located| positioned| situated| placed)?(?: in the image| in this image)?\??$", re.I)
 PLACE = re.compile(r"^(?:(?:top|bottom|middle)(?:[- ](?:left|right|middle))?|left|right|center|centre)"
                    r"(?: side)?$")
-
-
-def grid_label(cx: float, cy: float) -> str:
-    """Box centre (0-1) -> the dataset's 3x3 place words."""
-    row = "top" if cy < 1 / 3 else "bottom" if cy > 2 / 3 else "middle"
-    col = "left" if cx < 1 / 3 else "right" if cx > 2 / 3 else "middle"
-    return "center" if row == col == "middle" else f"{row}-{col}"
 
 
 def main() -> None:
@@ -53,7 +44,7 @@ def main() -> None:
     from satquery.imagery.validate import validate_inputs
     from satquery.tools.base import ToolContext
     from satquery.tools.hrground import HighResGrounder
-    from satquery.tools.hrvqa import HighResVQA
+    from satquery.tools.hrvqa import WHERE, HighResVQA, grid_label
 
     rows = []
     for r in json.loads((args.root / "VRSBench_EVAL_vqa.json").read_text(encoding="utf-8")):
@@ -75,7 +66,7 @@ def main() -> None:
         if not img.exists():
             continue
         rep = validate_inputs([load_image(img)], None)
-        v = vqa.run(ToolContext(r["question"], rep.config, rep.rasters), vqa.defaults())
+        v = vqa.run(ToolContext(r["question"], rep.config, rep.rasters), {**vqa.defaults(), "position_from_box": False})
         g = grd.run(ToolContext(f"the {r['obj']}", rep.config, rep.rasters), grd.defaults())
         if v.status != "ok" or g.status != "ok":
             continue

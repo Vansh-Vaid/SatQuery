@@ -241,9 +241,9 @@ the examples they share.
 | Answering each CDVQA question with its type's most common training answer | same 6,000 questions | 51.0% |
 | Full agent on change questions (planner + `cdvqa_vqa` + `change_qa` cross-check) | CDVQA test, stratified 1,200-question sample (150 per type) | **55.7%** (equal weight per type; matches the specialist's average accuracy, so routing loses nothing) |
 | Rule-based change tools only (before `cdvqa_vqa`) | same sample | 18.7% |
-| `hr_vqa` alone (high-resolution aerial VQA) | VRSBench VQA eval set, all 37,409 questions, exact match after normalisation | **54.0%**; existence 87.5%, image 83.7%, rural/urban 78.3%, shape 54.0%, reasoning 50.4%, category 48.2%, colour 46.1%, direction 44.7%, scene type 44.3%, size 42.4%, quantity 39.1%, position 37.1% |
-| Full agent on VRSBench VQA | stratified 600-question sample (50 per type) | **58.0%** (was 23.8% before `hr_vqa`) |
-| `hr_grounder` (referring-expression boxes) | VRSBench referring eval set, 16,159 expressions | **14.5%** Acc@0.5, mean IoU 0.21; ground-track field 28.5%, tennis court 25.9%, airplane 23.8%, vehicle 0.7%. Full agent on a 250-expression sample: 14.8% (was 0%) |
+| `hr_vqa` alone (high-resolution aerial VQA) | VRSBench VQA eval set, all 37,409 questions, exact match after normalisation | **56.0%** (dense model, D19; was 54.0%); image 88.9%, existence 88.0%, rural/urban 81.4%, shape 55.6%, category 54.1%, reasoning 53.3%, size 49.6%, colour 49.3%, scene type 48.1%, direction 41.3%, quantity 40.9%, position 35.0% |
+| Full agent on VRSBench VQA | stratified 600-question sample (50 per type) | **59.8%**, position 60% (58.0% / 50% with the earlier models; 23.8% before `hr_vqa`). A fresh 200-question sample not used before: 57.0% |
+| `hr_grounder` (referring-expression boxes) | VRSBench referring eval set, 16,159 expressions | **38.5%** Acc@0.5, mean IoU 0.37 (dense grounder, D19; was 14.5%); tennis court 79.2%, baseball diamond 67.7%, airplane 63.5%, basketball court 63.2%, storage tank 53.7%, harbor 40.3%, ship 26.1%, vehicle 13.7%. Full agent on the 250-expression sample: 36.8% (was 14.8%) |
 | Captions on VRSBench | 150-image sample, full answer vs reference | BLEU-1 0.173, BLEU-4 0.038, ROUGE-L 0.136 (was 0.132 / 0.031 / 0.109) |
 | Optical-SAR land cover on real pairs (`eval/real_pair_test.py`) | 6 sites × 6 km (Rotterdam, Geneva, Cairo, Hyderabad, Sacramento, Dhaka under 44% cloud); Sentinel-2 L2A + Sentinel-1 RTC 0-3 days apart, from Planetary Computer; ESA WorldCover 2021 as reference; per-pixel, 4 classes | mean pixel accuracy: `optical_sar_fusion` **79.9%**, `landcover_sar` 74.0%, `landcover_optical` 60.9%. Macro-F1 0.718 / 0.616 / 0.645. Mean IoU fused: water 0.73, built-up 0.72, vegetation 0.50, bare soil 0.03. Under cloud (Dhaka, ESA SCL mask): fused 77.7%, SAR 76.6%, optical 35.0%. Fusion beats both single sensors on 5 of 6 sites; on Cairo SAR alone is higher (84.2% vs 81.7%) |
 | Confidence calibration (`eval/calibration_report.py`) | the full-agent runs above: RSVQA-LR 1,300, CDVQA 1,200, VRSBench VQA 589 questions | expected calibration error (ECE, 10 bins) **0.076 / 0.038 / 0.045**; mean confidence 85.8% vs accuracy 85.7%, 54.0% vs 55.7%, 60.2% vs 59.1%. Accuracy by label: high 89.7% / 87.5% / 88.4%, medium 78.2% / 59.8% / 57.3%, low 53.7% / 38.5% / 27.6%. Reliability diagram: `docs/images/calibration.png`. RSVQA-LR is underconfident around 0.6-0.7 and overconfident around 0.75-0.9 |
@@ -262,18 +262,20 @@ python eval/convert.py vrsbench --root data/vrsbench --out eval/data/vrsbench_va
 python training/train_vrsbench_vqa.py --features-only       # encode images once (~15 min CPU, resumable)
 python training/train_vrsbench_vqa.py --epochs 8            # ~8 min
 python training/train_vrsbench_grounding.py --features-only # dense 14x14 maps (~1-1.5 h CPU, resumable)
-python training/train_vrsbench_grounding.py                 # the 14.5% figure above is the earlier 3x3 model
+python training/train_vrsbench_grounding.py                 # uses a GPU when present (kaggle/satquery_hr_train.ipynb)
+python training/train_vrsbench_vqa_dense.py --cache data/vrsbench/features   # dense hr_vqa on the same maps
 python eval/position_from_grounder.py --n 600              # answer "where is the X?" from the grounder box?
 python eval/calibration_report.py eval/results/rsvqa_lr eval/results/cdvqa_agent eval/results/vrs_agent_vqa --names RSVQA-LR CDVQA VRSBench --plot docs/images/calibration.png
 ```
 
 ![Confidence vs accuracy](images/calibration.png)
 
-**Position questions from the grounder box: not used.** `eval/position_from_grounder.py` scores the
-1,772 VRSBench "where is the X?" questions that have a place answer (top-left ... bottom-right). On a
-200-question sample, `hr_vqa` answers 24.5% correctly; taking the 3x3 cell of the 3x3-grid grounder's box
-answers 12.5%, about chance for nine places. So these questions stay with `hr_vqa`; the comparison is
-re-run whenever the grounder is retrained.
+**Position questions are answered from the grounder's box.** `eval/position_from_grounder.py` scores the
+1,772 VRSBench "where is the X?" questions that have a place answer (top-left ... bottom-right). With the
+dense models, on 300 of them: `hr_vqa`'s own answer 19.7%, the 3x3 cell holding the centre of the dense
+grounder's box **39.3%**. So `hr_grounder` names that cell as its short answer, and `hr_vqa` hands such
+questions to it (only while the grounder's measured Acc@0.5 beats `hr_vqa`'s own position accuracy; with the
+earlier 3x3-grid grounder it was 12.5% vs 24.5%, so they stayed with `hr_vqa`).
 
 VRSBench scoring here is strict exact match after normalisation; the VRSBench paper judges open answers with
 GPT-4, so the numbers are not directly comparable to its leaderboard.

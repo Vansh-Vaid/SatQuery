@@ -243,6 +243,21 @@ beats the guess from the image pair; non-numeric count answers are compared as t
 with the learning rate near its peak), and the benchmark download, which streams 118 GB from Zenodo,
 runs in a CPU session so GPU quota is spent only on training and scoring.
 
+### D19. High-resolution models retrained on dense maps, on a free Kaggle GPU
+The 3x3-grid models (D15) could not localise small objects: the median grounding target covers 1.2% of the
+image. Both models now read a 14x14 map from the same frozen ResNet-18 (layer3 + layer4, PCA to 256
+channels), conditioned on the question with FiLM; the grounder predicts a box per cell and the best cell
+wins, the VQA model pools with two question-driven attention glimpses.
+*Result:* grounding 14.5% -> **38.5%** Acc@0.5 on all 16,159 expressions; VQA 54.0% -> **56.0%** on all
+37,409 questions; full agent on the 600-question VQA sample 58.0% -> 59.8%. Model files shrank (45 + 48 MB
+-> 13 + 17 MB) and both share one encoder in memory, so the free CPU deployment is unchanged.
+*Training:* encoding ~30,000 images and training both took ~25 min on a free Kaggle T4
+(`kaggle/satquery_hr_train.ipynb`); the same scripts take 6-7 h on a laptop CPU. Only training uses a GPU.
+*Position questions:* the dense grounder's box cell answers "where is the X?" correctly 39.3% of the time vs
+19.7% for the VQA model, so the grounder's short answer is now that place (see TECHNICAL.md).
+*Not fixed yet:* the encoder is still frozen ImageNet weights, which is why vehicles (13.7%) and ships
+(26.1%) stay weak, and the new VQA model is slightly overconfident (mean confidence 62% vs 57% accuracy).
+
 ### D9. Synthetic Sentinel-1/2 scenes with known ground truth for tests and demos
 They let tests assert correctness (fractions, change IoU, directions), not just "it runs", and make the
 demo work offline. Real-data accuracy is measured by `eval/` on the named benchmarks.
