@@ -32,14 +32,26 @@ def test_cdvqa_scoring_maps_readable_answers_back():
     assert vqa_correct("Yes. (91% model confidence)", "yes", "change_or_not")
 
 
+def _aerial(r, name):
+    """The synthetic scene as an RGB PNG without georeferencing (pixel size unknown), like a CDVQA image."""
+    import dataclasses
+    rgb = r.data[[r.bands.index(b) for b in ("B04", "B03", "B02")]]
+    return dataclasses.replace(r, data=rgb, bands=["R", "G", "B"], source_format="png", crs=None, transform=None,
+                               bounds=None, name=name)
+
+
 @needs_ckpt
 def test_change_question_routed_to_specialist(s2, s2_t2):
     agent = SatQueryAgent(default_registry(RSVLM(backend_factory=lambda: None)), planner=RulePlanner())
-    r = agent.run("Did the areas of buildings increase?", [s2, s2_t2], "bitemporal")
-    assert r.trace["result"]["primary_tool"] == "cdvqa_vqa"
+    pair = [_aerial(s2, "t1.png"), _aerial(s2_t2, "t2.png")]
+    r = agent.run("Did the areas of buildings increase?", pair, "bitemporal")
+    assert r.trace["result"]["primary_tool"] == "cdvqa_vqa"     # aerial-like pair: the trained specialist
     assert r.short_answer in ("yes", "no")
+    # a 10 m Sentinel pair is outside CDVQA's 0.5-3 m imagery: the specialist abstains, measured tools answer
+    r = agent.run("What did the water turn into?", [s2, s2_t2], "bitemporal")
+    assert r.trace["result"]["primary_tool"] == "change_qa" and r.short_answer not in ("yes", "no")
     # a three-way choice is not a CDVQA question form: the specialist abstains, measured tools answer
-    r = agent.run("Has the built-up area increased, decreased, or remained unchanged?", [s2, s2_t2], "bitemporal")
+    r = agent.run("Has the built-up area increased, decreased, or remained unchanged?", pair, "bitemporal")
     assert r.trace["result"]["primary_tool"] == "change_qa"
     # a describe request still goes to the measured change tools
     r = agent.run("Describe what changed between these dates.", [s2, s2_t2], "bitemporal")

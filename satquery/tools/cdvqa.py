@@ -22,6 +22,7 @@ from satquery.tools.base import ParamSpec, TaskType, Tool, ToolContext, ToolResu
 
 _lock = threading.Lock()
 _cache: dict[str, Any] = {}
+MAX_GSD_M = 5.0   # CDVQA pairs are 0.5-3 m aerial images; Sentinel-scale (10 m) pairs go to the measured tools
 
 
 def _path(p: str) -> Path:
@@ -71,6 +72,10 @@ class CDVQASpecialist(Tool):
         opt = [r for r in ctx.rasters if r.modality.is_optical]
         if len(opt) < 2:
             return ToolResult(self.spec.name, "unsupported", notes=["Trained on optical image pairs only."])
+        if opt[0].gsd_m and opt[0].gsd_m > MAX_GSD_M:   # like hr_vqa: out of domain, the measured tools answer
+            return ToolResult(self.spec.name, "unsupported",
+                              notes=[f"Trained on 0.5-3 m aerial image pairs (CDVQA); this pair is {opt[0].gsd_m:g} m "
+                                     "per pixel, so the measured change tools answer instead."])
         # CDVQA's questions all start with What / Have / Did / How (+ "Has", "Is", "Are" variants) and never
         # offer choices. "Increased, decreased or unchanged?" is outside what it learned: the measured tools answer.
         import re
@@ -97,6 +102,5 @@ class CDVQASpecialist(Tool):
                  "cdvqa_test_accuracy": metrics.get("test_overall_accuracy"),
                  "cdvqa_test_per_type": metrics.get("test_per_type")}
         answer = f"{text[0].upper()}{text[1:]}. ({100 * p[k]:.0f}% model confidence)"
-        notes = ["CDVQA was built from 0.5-3 m aerial image pairs; other resolutions are less reliable."] \
-            if opt[0].gsd_m and opt[0].gsd_m > 5 else []
+        notes = [] if opt[0].gsd_m else ["Pixel size unknown; assumed to be an aerial pair like CDVQA's."]
         return ToolResult(self.spec.name, answer=answer, facts=facts, confidence=float(p[k]), notes=notes)
