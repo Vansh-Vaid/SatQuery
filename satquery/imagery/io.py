@@ -172,7 +172,8 @@ def _load_tiff(path: Path, name: str, hint: str | None, acquired: str | None) ->
     try:
         src = rasterio.open(path)
     except Exception as exc:
-        raise UnsupportedInput(f"{name}: not a readable TIFF ({exc})") from exc
+        raise UnsupportedInput(f"{name}: not a readable GeoTIFF file (it may be damaged, or another format "
+                               "renamed to .tif)") from exc
     with src:
         h, w, c = src.height, src.width, src.count
         scale = 1.0

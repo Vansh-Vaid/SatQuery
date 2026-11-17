@@ -384,7 +384,7 @@ class ChangeQA(Tool):
                 return out(f"{v['gain_pct'] + v['loss_pct']:.1f}%",
                            f"{CLASS_LABELS[c].capitalize()} changed on {v['gain_pct'] + v['loss_pct']:.1f}% of the scene "
                            f"(gain {v['gain_pct']:.1f}%, loss {v['loss_pct']:.1f}%).", "ratio", base_conf)
-            return out(ratio_bin(changed), f"{changed:.1f}% of the area changed (bin {ratio_bin(changed)}).", "ratio",
+            return out(ratio_bin(changed), f"{changed:.1f}% of the area changed (the {ratio_bin(changed).replace('%_to_', '-')} range).", "ratio",
                        base_conf)
 
         if _YESNO.match(q) and (_ANY_CHANGE.search(q) or classes):
