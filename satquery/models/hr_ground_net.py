@@ -54,11 +54,12 @@ def encode_dense(enc: tuple[nn.Module, nn.Module], rgbs: list[np.ndarray]) -> np
 
     x = np.stack([np.asarray(Image.fromarray(a).convert("RGB").resize((INPUT, INPUT), Image.BILINEAR), np.float32)
                   / 255.0 for a in rgbs])
-    x = torch.from_numpy((x - MEAN) / STD).permute(0, 3, 1, 2)
+    dev = next(enc[0].parameters()).device          # CPU in the app; GPU when a trainer moved the encoder
+    x = torch.from_numpy((x - MEAN) / STD).permute(0, 3, 1, 2).to(dev)
     with torch.inference_mode():
         f3 = enc[0](x)
         f4 = enc[1](f3)
-        return torch.cat([F.avg_pool2d(f3, 2), f4], 1).numpy()
+        return torch.cat([F.avg_pool2d(f3, 2), f4], 1).float().cpu().numpy()
 
 
 def project(raw: np.ndarray, pca_mean: np.ndarray, pca_comp: np.ndarray, scale: np.ndarray) -> np.ndarray:

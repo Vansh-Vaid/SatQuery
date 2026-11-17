@@ -1,4 +1,4 @@
-"""Train the dense VRSBench VQA specialist (CPU) on the 14x14 feature maps built for the grounder.
+"""Train the dense VRSBench VQA specialist (CPU, or a GPU when one is present) on the 14x14 feature maps built for the grounder.
 
 Reuses the grounder's feature cache (train_dense.npy / val_dense.npy, written by
 train_vrsbench_grounding.py), so no image is encoded again. Model: satquery.models.hr_ground_net.DenseVQA.
@@ -54,6 +54,8 @@ def main() -> None:
     ap.add_argument("--lr", type=float, default=1e-3)
     args = ap.parse_args()
     torch.manual_seed(0)
+    dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print("device:", dev, flush=True)
     random.seed(0)
     t0 = time.time()
     cache = args.cache or args.root / "features"
@@ -96,9 +98,9 @@ def main() -> None:
     feats = {"train": F_tr, "val": F_tr, "test": F_te}
 
     def gather(s: str, rows: torch.Tensor) -> torch.Tensor:
-        return torch.from_numpy(np.asarray(feats[s][rows.numpy()], dtype=np.float32))
+        return torch.from_numpy(np.asarray(feats[s][rows.numpy()], dtype=np.float32)).to(dev)
 
-    model = DenseVQA(len(vocab), len(answers))
+    model = DenseVQA(len(vocab), len(answers)).to(dev)
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0.02)
     im, ids, y = data["train"]
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=args.lr, pct_start=0.1,
@@ -111,7 +113,7 @@ def main() -> None:
         preds = []
         with torch.inference_mode():
             for k in range(0, len(im_), 512):
-                preds.append(model(gather(s, im_[k:k + 512]), ids_[k:k + 512, 0]).argmax(1))
+                preds.append(model(gather(s, im_[k:k + 512]), ids_[k:k + 512, 0].to(dev)).argmax(1).cpu())
         pred = torch.cat(preds).numpy()
         model.train()
         per: dict[str, list[int]] = defaultdict(lambda: [0, 0])
@@ -132,10 +134,11 @@ def main() -> None:
             b = perm[k:k + args.bs]
             v = torch.randint(0, len(VARIANTS), (len(b),))
             f = gather("train", im[b])
-            hflip, vflip = (v == 1) | (v == 3), (v == 2) | (v == 3)
+            vd = v.to(dev)
+            hflip, vflip = (vd == 1) | (vd == 3), (vd == 2) | (vd == 3)
             f[hflip] = f[hflip].flip(-1)
             f[vflip] = f[vflip].flip(-2)
-            loss = lossf(model(f, ids[b, v]), y[b, v])
+            loss = lossf(model(f, ids[b, v].to(dev)), y[b, v].to(dev))
             opt.zero_grad()
             loss.backward()
             opt.step()
@@ -145,7 +148,7 @@ def main() -> None:
         print(f"epoch {ep + 1}/{args.epochs}: loss {tot / len(y):.3f}  held-out accuracy {acc:.4f}  "
               f"({time.time() - te:.0f}s)", flush=True)
         if acc > best:
-            best, best_state = acc, {k: v.clone() for k, v in model.state_dict().items()}
+            best, best_state = acc, {k: t.detach().cpu().clone() for k, t in model.state_dict().items()}
 
     model.load_state_dict(best_state)
     acc, per = evaluate("test")

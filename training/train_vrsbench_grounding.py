@@ -1,4 +1,4 @@
-"""Train SatQuery's referring-expression grounder on VRSBench (CPU).
+"""Train SatQuery's referring-expression grounder on VRSBench (CPU, or a GPU when one is present).
 
 Model: satquery/models/hr_ground_net.py (dense 14x14 ResNet-18 map, expression-modulated cells, one box per
 cell; the best cell wins). Data: VRSBench_train.json + Images_train.zip (10% of training images held out
@@ -159,7 +159,9 @@ def main() -> None:
     print(f"{len(train)} train / {len(test)} test expressions over "
           f"{len(tr_names)} / {len(te_names)} images", flush=True)
 
-    enc = load_dense_encoder()
+    dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print("device:", dev, flush=True)
+    enc = tuple(m.to(dev) for m in load_dense_encoder())
     tr_imgs = ZipImages(args.root / "Images_train.zip")
     pca = fit_pca(cache / "dense_pca.npz", tr_imgs, tr_names, enc)
     F_tr = encode_all(cache / "train_dense.npy", tr_imgs, tr_names, enc, pca, args.encode_bs)
@@ -196,12 +198,12 @@ def main() -> None:
 
     def gather(s: str, rows: torch.Tensor) -> torch.Tensor:
         """Feature maps for these image rows, read from the memory-mapped cache as float32."""
-        return torch.from_numpy(np.asarray(feats[s][rows.numpy()], dtype=np.float32))
+        return torch.from_numpy(np.asarray(feats[s][rows.numpy()], dtype=np.float32)).to(dev)
 
     # soft target: Gaussian (sigma = 1 cell) around the cell holding the box centre
     g = GRID
     ys, xs = torch.meshgrid(torch.arange(g), torch.arange(g), indexing="ij")
-    cell_xy = torch.stack([(xs.flatten() + 0.5) / g, (ys.flatten() + 0.5) / g], 1)    # (G*G, 2)
+    cell_xy = torch.stack([(xs.flatten() + 0.5) / g, (ys.flatten() + 0.5) / g], 1).to(dev)    # (G*G, 2)
 
     def soft_target(box: torch.Tensor) -> torch.Tensor:
         c = torch.stack([(box[:, 0] + box[:, 2]) / 2, (box[:, 1] + box[:, 3]) / 2], 1)
@@ -217,7 +219,7 @@ def main() -> None:
         iou = inter / ua.clamp(min=1e-6)
         return iou, iou - (enc_ - ua) / enc_.clamp(min=1e-6)
 
-    model = DenseGrounder(len(vocab))
+    model = DenseGrounder(len(vocab)).to(dev)
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0.02)
     im, ids, y = data["train"]
     steps = args.epochs * math.ceil(len(y) / args.bs)
@@ -228,9 +230,9 @@ def main() -> None:
         im_, ids_, y_ = data[s]
         boxes, probs = [], []
         for k in range(0, len(y_), 512):
-            b, p = model.predict(gather(s, im_[k:k + 512]), ids_[k:k + 512, 0])
-            boxes.append(b)
-            probs.append(p)
+            b, p = model.predict(gather(s, im_[k:k + 512]), ids_[k:k + 512, 0].to(dev))
+            boxes.append(b.cpu())
+            probs.append(p.cpu())
         model.train()
         iou, _ = giou(torch.cat(boxes), y_)
         return float((iou >= 0.5).float().mean()), float(iou.mean()), iou.numpy(), torch.cat(probs).numpy()
@@ -244,13 +246,14 @@ def main() -> None:
             b = perm[k:k + args.bs]
             v = torch.randint(0, 4, (len(b),))
             f = gather("train", im[b])
-            box = y[b].clone()
-            hflip, vflip = (v == 1) | (v == 3), (v == 2) | (v == 3)
+            box = y[b].clone().to(dev)
+            vd = v.to(dev)
+            hflip, vflip = (vd == 1) | (vd == 3), (vd == 2) | (vd == 3)
             f[hflip] = f[hflip].flip(-1)
             f[vflip] = f[vflip].flip(-2)
             box[hflip] = torch.stack([1 - box[hflip, 2], box[hflip, 1], 1 - box[hflip, 0], box[hflip, 3]], 1)
             box[vflip] = torch.stack([box[vflip, 0], 1 - box[vflip, 3], box[vflip, 2], 1 - box[vflip, 1]], 1)
-            logits, pred = model(f, ids[b, v])
+            logits, pred = model(f, ids[b, v].to(dev))
             tgt = soft_target(box)
             ce = -(tgt * F.log_softmax(logits, 1)).sum(1).mean()
             _, gi = giou(pred, box[:, None, :].expand_as(pred))
@@ -265,7 +268,7 @@ def main() -> None:
         print(f"epoch {ep + 1}/{args.epochs}: loss {tot / len(y):.3f}  held-out Acc@0.5 {acc:.4f}  mIoU {miou:.4f}  "
               f"({time.time() - te:.0f}s)", flush=True)
         if acc > best:
-            best, best_state = acc, {k: v.clone() for k, v in model.state_dict().items()}
+            best, best_state = acc, {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
 
     model.load_state_dict(best_state)
     acc, miou, ious, probs = evaluate("test")
