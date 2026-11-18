@@ -157,6 +157,7 @@ def main() -> None:
             water = [DW_CLASSES.index("water"), DW_CLASSES.index("flooded_vegetation")]
             for split in ("test", "bolivia"):
                 inter = union = 0
+                by_country: dict[str, list[int]] = {}
                 for cid in split_ids(args.sen1floods11, split, required=False):
                     chip = load_chip(files, cid)
                     if chip is None:
@@ -166,8 +167,13 @@ def main() -> None:
                     p = np.isin(predict_classes(model.cpu(), model_input(r, v)).argmax(0), water)
                     a, b = iou(p, y)
                     inter, union = inter + a, union + b
+                    c = by_country.setdefault(cid.split("_")[0], [0, 0])
+                    c[0], c[1] = c[0] + a, c[1] + b
                 if union:
                     entry[f"sen1floods11_{split}_water_iou"] = round(inter / union, 4)
+                    if split == "test":   # per country, India included: "any place" for floods
+                        entry["sen1floods11_test_water_iou_by_country"] = {
+                            k: round(i / u, 4) for k, (i, u) in sorted(by_country.items()) if u}
             model.to(dev)
         result["variants"][v] = entry
         ckpt["variants"][v] = {"state": best_state, "in_ch": IN_CH[v], "n_out": K, "classes": DW_CLASSES, "metrics": entry}

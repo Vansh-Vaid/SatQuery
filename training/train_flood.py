@@ -184,6 +184,13 @@ def main() -> None:
             print(f"[{v}] epoch {ep + 1}/{args.epochs}: val IoU {val:.4f} ({time.time() - te:.0f}s)", flush=True)
         model.load_state_dict(best_state)
         test = evaluate("test")
+        by_country: dict[str, list[int]] = {}       # test IoU per country (India included)
+        cpu_model = model.to("cpu")
+        for (cid, _), (x, y) in zip(chips["test"], data["test"]):
+            a, b = iou(predict_water(cpu_model, x) > 0.5, y)
+            c = by_country.setdefault(cid.split("_")[0], [0, 0])
+            c[0], c[1] = c[0] + a, c[1] + b
+        model.to(dev)
         bi = bu = 0
         for _, (s1, s2, y) in chips["test"]:
             a, b = iou(baseline(v, s1, s2), y)
@@ -197,6 +204,7 @@ def main() -> None:
                 hi, hu = hi + a, hu + b
             held = {"bolivia_iou": round(evaluate("bolivia"), 4), "bolivia_baseline_iou": round(hi / max(hu, 1), 4),
                     "n_bolivia_chips": len(chips["bolivia"])}
+        held["test_iou_by_country"] = {k: round(i / u, 4) for k, (i, u) in sorted(by_country.items()) if u}
         result["variants"][v] = {**held, "test_iou": round(test, 4), "baseline_iou": round(base_iou, 4),
                                  "best_val_iou": round(best, 4), "n_test_chips": len(chips["test"]),
                                  "baseline": {"s1": "Otsu threshold on VV", "s2": "MNDWI > 0",

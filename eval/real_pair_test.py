@@ -54,6 +54,19 @@ SITES = {
     "sacramento": (-121.50, 38.58, ("2023-06-01", "2023-09-30"), 5, "rivers, city, farmland, dry grass"),
     "dhaka_cloudy": (90.40, 23.78, ("2023-06-15", "2023-09-30"), -1, "monsoon clouds over city and rivers"),
 }
+# held-out "any place" test: Indian cities and river basins, dry season so the ground is visible
+INDIA_SITES = {
+    "delhi": (77.21, 28.61, ("2023-03-01", "2023-04-30"), 10, "Yamuna, dense city, farmland"),
+    "mumbai": (72.88, 19.08, ("2023-01-10", "2023-04-30"), 10, "coast, creeks, dense city, mangroves"),
+    "kolkata": (88.36, 22.57, ("2023-01-10", "2023-03-31"), 10, "Hooghly river, city, wetlands"),
+    "chennai": (80.27, 13.08, ("2023-02-01", "2023-05-15"), 10, "coast, lakes, city"),
+    "bengaluru": (77.59, 12.97, ("2023-01-10", "2023-04-30"), 10, "lakes, city, scrub"),
+    "jaipur": (75.79, 26.91, ("2023-02-01", "2023-04-30"), 10, "dry hills, city, bare ground"),
+    "patna": (85.14, 25.59, ("2023-02-01", "2023-04-30"), 10, "Ganga, city, sandbars, farmland"),
+    "guwahati": (91.74, 26.14, ("2023-01-10", "2023-03-31"), 10, "Brahmaputra, city, hills, forest"),
+    "kochi": (76.27, 9.93, ("2023-01-10", "2023-03-31"), 10, "Kerala backwaters, coast, city, trees"),
+}
+ALL_SITES = {**SITES, **INDIA_SITES}
 HALF_M = 3000          # 6 km x 6 km = 600 x 600 pixels at 10 m
 RES = 10.0
 QUERY = "Use the optical and SAR images together to identify built-up and water-covered regions."
@@ -134,7 +147,7 @@ def fetch_site(name: str, out: Path) -> dict:
     from rasterio.transform import from_origin
     from rasterio.warp import transform as warp_xy
 
-    lon, lat, window, max_cloud, _ = SITES[name]
+    lon, lat, window, max_cloud, _ = ALL_SITES[name]
     d = out / name
     meta_path = d / "meta.json"
     if meta_path.exists():
@@ -190,7 +203,7 @@ def fetch_site(name: str, out: Path) -> dict:
         dst.update_tags(ACQUISITION_DATE=s1_date.isoformat(), SOURCE=s1["id"])
     np.save(d / "worldcover.npy", wc_arr)
     np.save(d / "scl.npy", scl)
-    meta = {"site": name, "lon": lon, "lat": lat, "description": SITES[name][4], "crs": crs,
+    meta = {"site": name, "lon": lon, "lat": lat, "description": ALL_SITES[name][4], "crs": crs,
             "s2": s2["id"], "s2_date": s2_date.isoformat(),
             "s2_cloud_cover_pct": s2["properties"].get("eo:cloud_cover"), "s2_processing_baseline": baseline,
             "s1": s1["id"], "s1_date": s1_date.isoformat(), "days_apart": abs((s1_date - s2_date).days),
@@ -230,7 +243,16 @@ def score(pred: np.ndarray, truth: np.ndarray, region: np.ndarray) -> dict:
     return out
 
 
-def evaluate(meta: dict, root: Path, agent=None) -> dict:
+def trained_map(model_entry, r) -> np.ndarray:
+    """The trained general land-cover model (change_mapper) on one image, collapsed to the 4 classes scored here."""
+    from satquery.models.seg_net import DW_CLASSES, DW_TO_SATQUERY, model_input, predict_classes, variant_for
+    v = variant_for(r)
+    model = model_entry[v][0]
+    lut = np.array([CLASSES.index(DW_TO_SATQUERY[c]) for c in DW_CLASSES], np.int8)
+    return lut[predict_classes(model, model_input(r, v)).argmax(0)]
+
+
+def evaluate(meta: dict, root: Path, agent=None, landcover=None) -> dict:
     d = root / meta["site"]
     opt = load_image(d / meta["s2_file"])
     sar = load_image(d / meta["s1_file"])
@@ -249,6 +271,8 @@ def evaluate(meta: dict, root: Path, agent=None) -> dict:
     known = truth >= 0
     scl_cloud = np.isin(scl, (8, 9, 10))          # ESA's own cloud mask (medium/high prob., cirrus)
     preds = {"optical_only": label_map(lo), "sar_only": label_map(ls), "fused": label_map(lf)}
+    if landcover is not None:
+        preds["trained_model"] = trained_map(landcover, opt_r)
     res = {"meta": meta, "config": rep.config.value,
            "validation_warnings": rep.warnings,
            "esa_cloud_pct": round(100 * float(scl_cloud.mean()), 1),
@@ -319,12 +343,24 @@ def figure(results: list[dict], path: Path) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--sites", nargs="*", default=list(SITES))
+    ap.add_argument("--region", choices=["world", "india"], default="world",
+                    help="world: the six original sites; india: the held-out Indian sites")
+    ap.add_argument("--sites", nargs="*", default=None)
+    ap.add_argument("--landcover-ckpt", type=Path, default=None,
+                    help="also score the trained general land-cover model (checkpoints/landcover_seg.pt)")
     ap.add_argument("--data", type=Path, default=Path("data/real_pairs"))
-    ap.add_argument("--out", type=Path, default=Path("eval/results/real_pairs"))
-    ap.add_argument("--figure", type=Path, default=Path("docs/images/real_pairs.jpg"))
+    ap.add_argument("--out", type=Path, default=None)
+    ap.add_argument("--figure", type=Path, default=None)
     ap.add_argument("--no-agent", action="store_true", help="skip the full-agent run per site")
     args = ap.parse_args()
+    suffix = "" if args.region == "world" else "_india"
+    args.sites = args.sites or list(SITES if args.region == "world" else INDIA_SITES)
+    args.out = args.out or Path(f"eval/results/real_pairs{suffix}")
+    args.figure = args.figure or Path(f"docs/images/real_pairs{suffix}.jpg")
+    landcover = None
+    if args.landcover_ckpt:
+        from satquery.tools.change_mapper import _load
+        landcover = _load(str(args.landcover_ckpt.resolve()))
 
     agent = None
     if not args.no_agent:
@@ -338,9 +374,9 @@ def main() -> None:
         except Exception as exc:
             print(f"  skipped: {type(exc).__name__}: {exc}", flush=True)
             continue
-        res = evaluate(meta, args.data, agent)
+        res = evaluate(meta, args.data, agent, landcover)
         results.append(res)
-        for k in ("optical_only", "sar_only", "fused"):
+        for k in res["all_pixels"]:
             s = res["all_pixels"][k]
             print(f"  {k:13s} acc {s['accuracy_pct']:5.1f}%  macro-F1 {s['macro_f1']}  coverage {s['coverage_pct']}%  "
                   + "  ".join(f"{c} IoU {v['iou']}" for c, v in s["per_class"].items()), flush=True)
@@ -351,7 +387,7 @@ def main() -> None:
         sys.exit("no site could be processed")
 
     summary = {}
-    for k in ("optical_only", "sar_only", "fused"):
+    for k in results[0]["all_pixels"]:
         summary[k] = {
             "mean_accuracy_pct": round(float(np.mean([r["all_pixels"][k]["accuracy_pct"] for r in results])), 1),
             "mean_macro_f1": round(float(np.mean([r["all_pixels"][k]["macro_f1"] for r in results])), 3),
