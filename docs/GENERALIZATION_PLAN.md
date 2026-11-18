@@ -44,4 +44,15 @@ written), then D, F, G.
 
 ## Status
 
-Updated as work lands; see the commit log on `generalize`.
+| Workstream | State |
+|---|---|
+| A. Landsat 8/9 | **Done** (`b59147a`): stacked or named Collection-2 files load with Sentinel-2 band roles; land cover matches the Sentinel-2 version of the same scene on > 90% of pixels; 3 tests |
+| B. Screenshot pairs | **Done** (on `main`): landmark alignment, cloud/label masking, flood wording, river-bed shape check |
+| C. Flood specialist | **Code done** (`5e7fcc4`): `seg_net`, `train_flood.py` (smoke-tested on a fake Sen1Floods11), `flood_mapper` tool, planner/controller routing, gate inside the tool (a variant is used only if it beat the classic method), Bolivia held-out score. **Waiting on:** `kaggle/satquery_flood_train.ipynb` run |
+| E. Free-form VLM | **Code done** (`4e883ac`): SmolVLM-ready backend and LoRA targets, VRSBench chat rows with the app's prompts, CPU-timed scorer. **Waiting on:** `kaggle/satquery_smolvlm_train.ipynb` run, then a memory/latency check before serving |
+| D. Burned areas | Next: reuses `seg_net`; needs the CaBuAr loader and notebook |
+| F. India test set | Next: Kaggle notebook over Planetary Computer (Kerala 2018, Assam 2022, cities) |
+| G. Docs and merge | After the Kaggle verdicts |
+
+Dataset paths for Sen1Floods11 were checked against the public bucket listing (splits include a Bolivia-only
+held-out file, used as the "never seen" test).
