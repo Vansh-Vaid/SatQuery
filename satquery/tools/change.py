@@ -34,6 +34,22 @@ def _dates(ctx: ToolContext) -> tuple[str, str]:
     return a.acquired.isoformat(), b.acquired.isoformat()
 
 
+def _overlay_mask(r: Raster) -> np.ndarray:
+    """White clouds and overlay text (bright, colourless), padded, plus the dark shadows next to clouds."""
+    import cv2
+
+    from satquery.imagery.render import to_rgb
+
+    rgb = to_rgb(r).astype(np.int16)
+    lo, hi = rgb.min(-1), rgb.max(-1)
+    white = (lo > 190) & (hi - lo < 40)
+    if not white.any():
+        return white
+    white = cv2.dilate(white.astype(np.uint8), np.ones((5, 5), np.uint8)).astype(bool)
+    near = cv2.dilate(white.astype(np.uint8), np.ones((41, 41), np.uint8)).astype(bool)
+    return white | (near & (hi < 60))
+
+
 def _rgb_only(ctx: ToolContext) -> bool:
     """True-colour images without infrared or radar bands (photos, screenshots, PNG/JPEG)."""
     return all({str(b).upper() for b in r.bands} <= {"R", "G", "B", "A", "RED", "GREEN", "BLUE", "ALPHA"}
@@ -92,6 +108,14 @@ class ChangeDetector(Tool):
         method = params.get("method", "auto")
         sar = a.modality is Modality.SAR
         notes: list[str] = []
+        if _rgb_only(ctx) and any(r.meta.get("registered_to_ref") or r.meta.get("resized_to_ref") for r in (a, b)):
+            # screenshot-like pairs: clouds, their shadows and overlay text are not ground change
+            over = _overlay_mask(a) | _overlay_mask(b)
+            n0 = int(valid.sum())
+            valid = valid & ~over
+            left_out = 1 - int(valid.sum()) / max(n0, 1)
+            if left_out >= 0.005:
+                notes.append(f"{100 * left_out:.1f}% of the scene was left out as cloud, cloud shadow or overlay text.")
         if method == "learned" or (method == "auto" and settings.change_checkpoint and not sar):
             if settings.change_checkpoint:
                 return self._learned(ctx, a, b, valid, params)
@@ -187,6 +211,8 @@ class ChangeDetector(Tool):
             conf *= 0.55
             notes = notes + ["The two images had different sizes and were stretched to match, so some detected "
                              "change may come from the images not lining up exactly."]
+        elif any((r.meta.get("registration_rmse_px") or 0) > 2.0 for r in ctx.rasters):
+            conf *= 0.8   # aligned on landmarks, but only to within a few pixels
         d1, d2 = _dates(ctx)
         boxes = [Box(r["x0"], r["y0"], r["x1"], r["y1"], label=f"change {i + 1}", source=self.spec.name,
                      score=float(np.mean(sig[r["y0"]:r["y1"], r["x0"]:r["x1"]])))
@@ -272,6 +298,23 @@ class ChangeSemantics(Tool):
                  "per_class": per_class,
                  "top_transitions": [{k: v for k, v in t.items() if k != "_mask"} for t in trans[:6]],
                  "change_without_class_transition_pct": round(100 * unexplained, 2)}
+        # shape evidence for floods: new water/grey ground that spreads out from ground already water/grey in the
+        # first image (a river bed) is how flood deposits look; new buildings appear as separate patches
+        grey = [CLASSES.index(c) for c in ("water", "built_up", "bare_soil")]
+        new = ch & np.isin(mapb, grey) & ~np.isin(mapa, grey)
+        if new.sum() >= 50:
+            import cv2
+            # river bed = sizeable connected water/grey bodies in the first image, not scattered single pixels
+            old_raw = cv2.medianBlur((np.isin(mapa, grey) & valid).astype(np.uint8), 5)
+            n_old, old_lab, stats, _ = cv2.connectedComponentsWithStats(old_raw, connectivity=8)
+            big = [i for i in range(1, n_old) if stats[i, cv2.CC_STAT_AREA] >= max(50, 0.002 * old_raw.size)]
+            old = cv2.dilate(np.isin(old_lab, big).astype(np.uint8), np.ones((5, 5), np.uint8)).astype(bool)
+            # group fragments of one deposit (the change mask breaks it up) before testing contact with the river bed
+            grouped = cv2.dilate(new.astype(np.uint8), np.ones((7, 7), np.uint8))
+            _, lab = cv2.connectedComponents(grouped, connectivity=8)
+            touching = np.unique(lab[(grouped > 0) & old])
+            connected = np.isin(lab, touching[touching > 0]) & new
+            facts["new_ground_connected_pct"] = round(100 * float(connected.sum()) / float(new.sum()), 1)
         if trans:
             t = trans[0]
             ans = (f"Main transition: {CLASS_LABELS[t['from']]} → {CLASS_LABELS[t['to']]} ({t['pct']:.1f}% of the "
@@ -363,7 +406,7 @@ class ChangeQA(Tool):
                                               f"({t['pct']:.1f}% of the scene, {t['where']}).", "transition", base_conf)
 
         if mode != "describe" and _FLOOD.search(q):
-            return self._flood(ctx, pc, trans, base_conf, out)
+            return self._flood(ctx, pc, trans, base_conf, out, sf.get("new_ground_connected_pct"))
 
         if mode == "describe" or (mode == "auto" and (_DESCRIBE.search(q) or _WHERE.search(q)) and not _YESNO.match(q)):
             return out("description", self._describe(ctx, df, sf), "describe", base_conf)
@@ -425,7 +468,7 @@ class ChangeQA(Tool):
         return out("description", self._describe(ctx, df, sf), "describe", base_conf * 0.9)
 
     @staticmethod
-    def _flood(ctx: ToolContext, pc: dict, trans: list, base_conf: float, out) -> ToolResult:
+    def _flood(ctx: ToolContext, pc: dict, trans: list, base_conf: float, out, connected=None) -> ToolResult:
         """Flooding = land that became water. With infrared or radar bands, water is measured directly (plus new
         bare/wet ground for deposits). In true-colour images muddy flood water and deposits are grey-brown and
         cannot be told apart from built-up or bare ground, so those gains count too and the answer says so."""
@@ -443,11 +486,15 @@ class ChangeQA(Tool):
             return out("no", f"No clear sign of flooding: new water or wet ground covers only {total:.1f}% of the "
                              f"scene in the second image.", "flood", base_conf * 0.6)
         if rgb:
+            river = connected is not None and connected >= 60 and total >= 2.0
+            shape = (f" Most of it ({connected:.0f}%) spreads out from ground that was already river bed or water in "
+                     "the first image, which is how flood deposits look; new buildings would appear as separate "
+                     "patches." if river else "")
             return out("yes", f"Likely yes: about {total:.1f}% of the scene turned from land into water or grey-brown "
                               f"ground in the second image{where}, the pattern of muddy flood water or flood "
-                              f"deposits; clear open water alone covers {water:.1f}%. These are true-colour images "
-                              "without infrared bands, so muddy water, deposits and built-up surfaces cannot be fully "
-                              "separated: treat this as an indication, not a measurement.", "flood", base_conf * 0.6)
+                              f"deposits; clear open water alone covers {water:.1f}%.{shape} These are true-colour "
+                              "images without infrared bands, so muddy water, deposits and built-up surfaces cannot be "
+                              "fully separated by colour alone.", "flood", base_conf * (0.85 if river else 0.6))
         return out("yes", f"Yes: open water increased by {water:.1f}% of the scene{where}, plus {ground:.1f}% new "
                           f"bare or wet ground (flood deposits).", "flood", base_conf * 0.9)
 

@@ -125,15 +125,39 @@ def test_flood_question_on_sentinel_pair_needs_new_water(s2, s2_t2):
 
 
 def test_flood_question_on_true_colour_pair_counts_grey_ground_and_says_so(s2):
+    import cv2
     import numpy as np
+
+    from satquery.tools.landcover import classify
+    from satquery.tools.vocab import CLASSES
     before = _rgb_copy(s2, "before.png")
+    m = classify(before).label_map()
+    grey = before.data[:, m == CLASSES.index("built_up")].mean(axis=1).reshape(3, 1, 1)   # the scene's grey ground
+    water = cv2.dilate((m == CLASSES.index("water")).astype(np.uint8), np.ones((25, 25), np.uint8)).astype(bool)
     flooded = before.data.copy()
-    flooded[:, 40:90, 30:110] = np.array([150, 140, 125]).reshape(3, 1, 1).astype(flooded.dtype)  # muddy grey-brown
+    flooded[:, water] = np.broadcast_to(grey, flooded.shape)[:, water]   # muddy deposits spread out from the river
     after = _rgb_copy(s2, "after.png", data=flooded)
     ctx = run_chain("Is there flooding?", [before, after], ["change_detector", "change_semantics", "change_qa"])
     qa = ctx.upstream["change_qa"]
-    assert qa.facts["short_answer"] == "yes" and "true-colour" in qa.answer and qa.confidence < 0.6
+    assert qa.facts["short_answer"] == "yes" and "true-colour" in qa.answer
+    river_conf = qa.confidence
     assert "the first image and the second image" in ctx.upstream["change_detector"].answer   # no fake dates
+    # control: the same amount of new grey ground as separate building-sized patches inside vegetation, away from
+    # any water or grey ground, must not get the river-bed shape support
+    other = cv2.medianBlur((m != CLASSES.index("vegetation")).astype(np.uint8), 5)   # smoothed: ignore speckle
+    inner = ~cv2.dilate(other, np.ones((15, 15), np.uint8)).astype(bool)
+    patches = before.data.copy()
+    placed = 0
+    for y, x in zip(*np.nonzero(inner)):
+        if placed < 12 and inner[y, x] and 4 <= y < 124 and 4 <= x < 124:
+            patches[:, y - 3:y + 4, x - 3:x + 4] = grey
+            inner[max(0, y - 14):y + 15, max(0, x - 14):x + 15] = False   # keep the patches apart
+            placed += 1
+    ctx = run_chain("Is there flooding?", [before, _rgb_copy(s2, "patches.png", data=patches)],
+                    ["change_detector", "change_semantics", "change_qa"])
+    patch_qa = ctx.upstream["change_qa"]
+    assert placed >= 8 and "river bed" not in patch_qa.answer
+    assert patch_qa.facts["short_answer"] == "no" or patch_qa.confidence < river_conf
     same = _rgb_copy(s2, "before_again.png")
     ctx = run_chain("Is there flooding?", [before, same], ["change_detector", "change_semantics", "change_qa"])
     assert ctx.upstream["change_qa"].facts["short_answer"] == "no"   # nothing changed: no flood

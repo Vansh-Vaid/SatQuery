@@ -202,9 +202,26 @@ def _align(rep: ValidationReport, ref: Raster, mov: Raster) -> Raster:
     if ref.georeferenced != mov.georeferenced:
         rep.add("pair.georef", "warn", "Only one image is georeferenced; assuming identical footprints.")
     if ref.shape != mov.shape:
+        h, w = ref.shape
+        reg = None if (ref.georeferenced or mov.georeferenced) else _register(ref, mov)
+        if reg is not None:   # e.g. two screenshots of the same map at different crops: align them on landmarks
+            m, n, rmse = reg
+            data = np.stack([cv2.warpAffine(np.nan_to_num(c).astype(np.float32), m, (w, h), flags=cv2.INTER_LINEAR)
+                             for c in mov.data])
+            mask = cv2.warpAffine(mov.valid_mask.astype(np.uint8), m, (w, h), flags=cv2.INTER_NEAREST).astype(bool)
+            data[:, ~mask] = np.nan
+            overlap = float(mask.mean())
+            rep.add("pair.grid", "pass" if overlap >= 0.6 and rmse <= 2.0 else "warn",
+                    f"Pixel grids differ ({ref.shape} vs {mov.shape}); second image aligned to the first by matching "
+                    f"{n} landmarks (scale {float(np.hypot(m[0, 0], m[1, 0])):.2f}, residual {rmse:.1f} px); "
+                    f"the images overlap on {100 * overlap:.0f}% of the first image.")
+            return Raster(data=data, bands=mov.bands, modality=mov.modality, source_format=mov.source_format,
+                          name=mov.name, crs=ref.crs, transform=ref.transform, bounds=ref.bounds,
+                          acquired=mov.acquired, valid_mask=mask,
+                          meta={**mov.meta, "registered_to_ref": True, "registration_points": n,
+                                "registration_rmse_px": round(rmse, 2)})
         rep.add("pair.grid", "warn", f"Pixel grids differ ({ref.shape} vs {mov.shape}); second image resized. "
                                      f"Spatial correspondence is assumed, not verified.")
-        h, w = ref.shape
         data = np.stack([cv2.resize(np.nan_to_num(c), (w, h), interpolation=cv2.INTER_LINEAR) for c in mov.data])
         mask = cv2.resize(mov.valid_mask.astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST).astype(bool)
         data[:, ~mask] = np.nan
@@ -214,6 +231,36 @@ def _align(rep: ValidationReport, ref: Raster, mov: Raster) -> Raster:
     rep.add("pair.grid", "pass" if not (ref.georeferenced or mov.georeferenced) else "warn",
             "Images have identical pixel dimensions; treated as co-registered.")
     return mov
+
+
+def _register(ref: Raster, mov: Raster) -> tuple[np.ndarray, int, float] | None:
+    """Similarity transform (scale, rotation, shift) taking ``mov`` pixels onto ``ref`` pixels, estimated from ORB
+    landmark matches with RANSAC. For pairs without georeferencing, such as two screenshots of the same map at
+    different crops or zoom levels. Returns (2x3 matrix, inlier count, residual in px), or None if unreliable."""
+    from satquery.imagery.render import to_rgb
+
+    g1, g2 = (cv2.cvtColor(to_rgb(r), cv2.COLOR_RGB2GRAY) for r in (ref, mov))
+    orb = cv2.ORB_create(4000)
+    k1, d1 = orb.detectAndCompute(g1, None)
+    k2, d2 = orb.detectAndCompute(g2, None)
+    if d1 is None or d2 is None or len(k1) < 20 or len(k2) < 20:
+        return None
+    pairs = cv2.BFMatcher(cv2.NORM_HAMMING).knnMatch(d2, d1, k=2)
+    good = [p[0] for p in pairs if len(p) == 2 and p[0].distance < 0.75 * p[1].distance]
+    if len(good) < 20:
+        return None
+    src = np.float32([k2[g.queryIdx].pt for g in good])
+    dst = np.float32([k1[g.trainIdx].pt for g in good])
+    m, inl = cv2.estimateAffinePartial2D(src, dst, method=cv2.RANSAC, ransacReprojThreshold=3.0, maxIters=5000,
+                                         confidence=0.995)
+    if m is None:
+        return None
+    keep = inl.ravel().astype(bool)
+    n, scale = int(keep.sum()), float(np.hypot(m[0, 0], m[1, 0]))
+    if n < 20 or n / len(good) < 0.25 or not 0.5 < scale < 2.0:
+        return None
+    err = np.linalg.norm(src[keep] @ m[:, :2].T + m[:, 2] - dst[keep], axis=1)
+    return m, n, float(np.sqrt(np.mean(err ** 2)))
 
 
 def _bounds_iou(a: Raster, b: Raster) -> float | None:
