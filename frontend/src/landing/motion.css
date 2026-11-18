@@ -13,27 +13,10 @@
 .lp-hero::before { content: ""; position: absolute; inset: -20%; pointer-events: none;
   background: radial-gradient(22% 26% at 70% 55%, rgba(232, 145, 58, .12), transparent 70%);
   }
-@keyframes lp-drift { to { transform: translate(-6%, 4%) scale(1.08); } }
-.lp-contours { position: absolute; left: -22%; top: -22%; width: 144%; height: 144%; z-index: 0; pointer-events: none; animation: lp-spin 140s linear infinite; will-change: transform; }
-.lp-contours path { fill: none; stroke: rgba(79, 91, 34, .12); stroke-width: 1; vector-effect: non-scaling-stroke; }
-.lp-contours path.major { stroke: rgba(210, 101, 31, .28); stroke-width: 1.4; }
-@keyframes lp-spin { to { transform: rotate(360deg); } }
-@keyframes lp-breathe { 50% { transform: scale(1.025); } }
-.lp-globe-stage { z-index: 1; } .lp-globe-canvas { z-index: 1; } .lp-globe { isolation: isolate; }
+
+  
 
 /* ticker */
-.lp-ticker { position: relative; overflow: hidden; padding: 18px 0; background: #3a4126;
-  mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent); }
-.lp-ticker-track { display: flex; gap: 14px; width: max-content; animation: lp-marquee 60s linear infinite; will-change: transform; }
-.lp-ticker:hover .lp-ticker-track, .lp-ticker:focus-within .lp-ticker-track { animation-play-state: paused; }
-.lp-ticker-item { display: inline-flex; align-items: center; gap: 12px; padding: 10px 18px 10px 10px; border-radius: 999px; white-space: nowrap;
-  text-decoration: none; color: rgba(245, 242, 235, .92) !important; font: 500 .98rem/1 var(--sans);
-  background: rgba(245, 242, 235, .06); border: 1px solid rgba(245, 242, 235, .12); transition: background .25s, border-color .25s; }
-.lp-ticker-item:hover { background: rgba(210, 101, 31, .28); border-color: rgba(240, 161, 96, .7); }
-.lp-ticker-tag { padding: 6px 10px; border-radius: 999px; font: 700 .72rem/1 var(--sans); letter-spacing: .04em; color: #2a2d1e; background: #f0a160; }
-.lp-ticker-item:nth-child(3n+2) .lp-ticker-tag { background: #c9d08f; }
-.lp-ticker-item:nth-child(3n) .lp-ticker-tag { background: #f3e6c8; }
-@keyframes lp-marquee { to { transform: translateX(-50%); } }
 
 /* richer bands */
 #seeing { background: linear-gradient(170deg, #ecefdc 0%, #f3eedf 55%, #f6e7d3 100%); }
@@ -71,8 +54,7 @@
 .lp-foot { padding: 36px 0; }
 @media (max-width: 720px) {
   /* the globe fills the width on phones: open the marker label to the left of the dot so it stays on screen */
-  .lp-marker-label { margin: -14px 0 0 0; transform: translateX(calc(-100% - 14px)); border-radius: 12px; }
-  .lp-marker:hover .lp-marker-label, .lp-marker:focus-visible .lp-marker-label { transform: translateX(calc(-100% - 14px)) translateY(-2px); }
+  
 }
 @media (max-width: 960px) {
   .lp-steps { grid-template-columns: 1fr; } .lp-steps li + li::before { display: none; }
@@ -80,6 +62,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .lp h1 em, .lp-hero::before, .lp-contours, .lp-contours path, .lp-ticker-track, .lp-final::after { animation: none !important; }
-  .lp-ticker { overflow-x: auto; }
+  .lp h1 em, .lp-hero::before, .lp-final::after { animation: none !important; }
+  
 }

@@ -22,15 +22,7 @@ a { color: var(--accent-strong); }
 .link-btn { background: none; border: 0; padding: 4px 0; cursor: pointer; font-size: .84rem; font-weight: 700; color: var(--accent-strong); }
 .link-btn:hover { text-decoration: underline; text-underline-offset: 3px; }
 
-/* ============ backdrop ============ */
-.backdrop { position: fixed; inset: 0; z-index: -1; }
 .hud-panel, .col-right, .topbar { position: relative; z-index: 2; }
-.backdrop canvas { display: block; }
-.radar-pulse { position: fixed; inset: 0; z-index: 30; pointer-events: none; overflow: hidden; }
-.radar-pulse::before { content: ""; position: absolute; top: 0; bottom: 0; width: 18vw; left: -20vw;
-  background: linear-gradient(90deg, transparent, rgba(210, 101, 31, .05) 70%, rgba(210, 101, 31, .22) 100%);
-  animation: cband 1.4s var(--ease-orbital) forwards; }
-@keyframes cband { to { left: 105vw; } }
 
 /* ============ shell ============ */
 .app { position: relative; z-index: 1; height: 100vh; display: flex; flex-direction: column; }
@@ -382,5 +374,5 @@ kbd { font: 600 .7rem/1 var(--font-telemetry); padding: 2px 5px; border-radius: 
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
-  .sweep, .radar-pulse { display: none; }
+  .sweep { display: none; }
 }
