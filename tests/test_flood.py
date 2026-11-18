@@ -1,4 +1,4 @@
-"""Flood specialist: trainer smoke test on a fake Sen1Floods11 folder, and the flood_mapper tool end to end."""
+"""Radar water model trainer (Sen1Floods11): smoke test on a fake dataset folder."""
 import sys
 from pathlib import Path
 
@@ -53,72 +53,3 @@ def test_trainer_runs_end_to_end_on_a_tiny_fake_dataset(tmp_path, monkeypatch):
     for v in m["variants"].values():
         assert 0 <= v["test_iou"] <= 1 and 0 <= v["baseline_iou"] <= 1 and v["n_test_chips"] == 2
         assert 0 <= v["bolivia_iou"] <= 1 and v["n_bolivia_chips"] == 1   # held-out country reported
-
-
-def _flood_checkpoint(path, beats=True):
-    """A checkpoint with untrained weights but the real format (all three variants)."""
-    import torch
-
-    from satquery.models.seg_net import IN_CH, build_unet
-    torch.manual_seed(0)
-    ck = {"arch": "seg_unet", "base": 4, "variants": {
-        v: {"state": build_unet(IN_CH[v], 4).state_dict(), "in_ch": IN_CH[v],
-            "metrics": {"test_iou": 0.7, "baseline_iou": 0.5, "beats_baseline": beats}} for v in IN_CH}}
-    torch.save(ck, path)
-
-
-def _use(monkeypatch, path):
-    import dataclasses
-
-    from satquery.config import settings
-    from satquery.tools import flood
-    monkeypatch.setattr(flood, "settings", dataclasses.replace(settings, flood_checkpoint=str(path)))
-    flood._cache.clear()
-
-
-def test_flood_mapper_runs_on_each_input_family(tmp_path, monkeypatch, s2, s2_t2, s1):
-    import dataclasses
-
-    from satquery.imagery.validate import validate_inputs
-    from satquery.tools.base import ToolContext
-    from satquery.tools.flood import FloodMapper
-    _flood_checkpoint(tmp_path / "f.pt")
-    _use(monkeypatch, tmp_path / "f.pt")
-    s1_t2 = dataclasses.replace(s1, name="s1_b.tif", acquired=s2_t2.acquired)
-    rgb = lambda r, n: dataclasses.replace(r, data=r.data[[r.bands.index(b) for b in ("B04", "B03", "B02")]],  # noqa: E731
-                                           bands=["R", "G", "B"], source_format="png", crs=None, transform=None,
-                                           bounds=None, name=n)
-    tool = FloodMapper()
-    for pair, family in (([s2, s2_t2], "s2"), ([s1, s1_t2], "s1"), ([rgb(s2, "a.png"), rgb(s2_t2, "b.png")], "rgb")):
-        rep = validate_inputs(pair)
-        res = tool.run(ToolContext("Has the area been flooded?", rep.config, rep.rasters), tool.defaults())
-        assert res.ok and res.facts["variants"] == [family, family], family
-        assert res.facts["short_answer"] in ("yes", "no") and 0 < res.confidence < 1
-        assert res.layers[0].array.shape == rep.rasters[0].shape
-
-
-def test_flood_mapper_steps_aside_when_its_model_lost_to_the_classic_method(tmp_path, monkeypatch, s2, s2_t2):
-    from satquery.imagery.validate import validate_inputs
-    from satquery.tools.base import ToolContext
-    from satquery.tools.flood import FloodMapper
-    _flood_checkpoint(tmp_path / "lost.pt", beats=False)
-    _use(monkeypatch, tmp_path / "lost.pt")
-    rep = validate_inputs([s2, s2_t2])
-    res = FloodMapper().run(ToolContext("Was it flooded?", rep.config, rep.rasters), FloodMapper().defaults())
-    assert res.status == "unsupported"
-
-
-def test_agent_routes_flood_questions_to_the_flood_model_when_trained(tmp_path, monkeypatch, s2, s2_t2):
-    from satquery.agent.controller import SatQueryAgent
-    from satquery.agent.planner import RulePlanner
-    from satquery.tools.registry import default_registry
-    from satquery.tools.vlm import RSVLM
-    agent = SatQueryAgent(default_registry(RSVLM(backend_factory=lambda: None)), planner=RulePlanner())
-    _use(monkeypatch, tmp_path / "missing.pt")          # no checkpoint: measured change tools answer
-    assert agent.run("Has the area been flooded?", [s2, s2_t2], "bitemporal").trace["result"]["primary_tool"] == "change_qa"
-    _flood_checkpoint(tmp_path / "f.pt")
-    _use(monkeypatch, tmp_path / "f.pt")
-    r = agent.run("Has the area been flooded?", [s2, s2_t2], "bitemporal")
-    assert r.trace["result"]["primary_tool"] == "flood_mapper" and r.short_answer in ("yes", "no")
-    r = agent.run("What changed between these dates?", [s2, s2_t2], "bitemporal")   # not a flood question
-    assert r.trace["result"]["primary_tool"] != "flood_mapper"

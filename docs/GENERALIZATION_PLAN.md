@@ -13,8 +13,13 @@ until it passes its gate (below); the current version stays live as the fallback
 | Q4 | Budget | One week, at most 30 hours |
 | Q5 | Safety | `generalize` branch; each feature merges only after it beats the current version on a fixed test |
 | Q6 | Free-form questions | A tiny VLM (SmolVLM, 256M/500M) fine-tuned on Kaggle and served on the CPU, with measured confidence |
-| Q7 | New tasks | **Floods** (Sen1Floods11) and **burned areas** (CaBuAr) as trained specialists |
+| Q7 | New tasks | ~~Flood and burned-area specialists~~ replaced (Q10): no event gets its own model |
 | Q8 | Imagery families | Sentinel-1/2 GeoTIFF (have), **Landsat 8/9** GeoTIFF (new), true-colour photos and screenshots (aligned on landmarks); not oblique drone views, hyperspectral or LiDAR |
+| Q10 | General design | **One trained land-cover model** (9 Dynamic World classes); every event (flood, forest loss, fire scars, urban growth, drought, cropland, snow loss) is a class change defined in `satquery/tools/events.py` |
+| Q11 | Labels | Dynamic World expert labels (PANGAEA, CC-BY) + matching Sentinel-2 L2A from Planetary Computer |
+| Q12 | Sen1Floods11 | Test only (water IoU on flood scenes, Bolivia held out), not a separate tool |
+| Q13 | Versions | Multispectral and true colour; radar keeps a water-only model |
+| Q14 | Burned areas | Dropped as a workstream: fire scars are vegetation -> bare |
 | Q9 | Proof of "any place" | A held-out **India** test set (Kerala 2018 and Assam 2022 floods, Indian cities) scored against ESA WorldCover and published flood maps |
 
 Decisions taken during execution (owner's veto welcome):
@@ -48,10 +53,10 @@ written), then D, F, G.
 |---|---|
 | A. Landsat 8/9 | **Done** (`b59147a`): stacked or named Collection-2 files load with Sentinel-2 band roles; land cover matches the Sentinel-2 version of the same scene on > 90% of pixels; 3 tests |
 | B. Screenshot pairs | **Done** (on `main`): landmark alignment, cloud/label masking, flood wording, river-bed shape check |
-| C. Flood specialist | **Code done** (`5e7fcc4`): `seg_net`, `train_flood.py` (smoke-tested on a fake Sen1Floods11), `flood_mapper` tool, planner/controller routing, gate inside the tool (a variant is used only if it beat the classic method), Bolivia held-out score. **Waiting on:** `kaggle/satquery_flood_train.ipynb` run |
-| E. Free-form VLM | **Code done** (`4e883ac`): SmolVLM-ready backend and LoRA targets, VRSBench chat rows with the app's prompts, CPU-timed scorer. **Waiting on:** `kaggle/satquery_smolvlm_train.ipynb` run, then a memory/latency check before serving |
-| D. Burned areas | Next: reuses `seg_net`; needs the CaBuAr loader and notebook |
-| F. India test set | Next: Kaggle notebook over Planetary Computer (Kerala 2018, Assam 2022, cities) |
+| C. General land-cover change model | **Code done**: `seg_net` (9 classes), `events.py`, `change_mapper` (replaces the flood tool; used for every change question once trained; gate: beats the rule-based land cover on Dynamic World's held-out experts), `fetch_dynamic_world.py`, `train_landcover.py` (smoke-tested), radar water model. **Waiting on:** `kaggle/satquery_landcover_train.ipynb` |
+| E. Free-form VLM | **Code done**: SmolVLM path. **Waiting on:** `kaggle/satquery_smolvlm_train.ipynb` |
+| D. Burned areas | Dropped (Q14) |
+| F. India test set | Next |
 | G. Docs and merge | After the Kaggle verdicts |
 
 Dataset paths for Sen1Floods11 were checked against the public bucket listing (splits include a Bolivia-only

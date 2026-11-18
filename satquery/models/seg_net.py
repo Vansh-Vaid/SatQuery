@@ -15,6 +15,12 @@ from satquery.imagery.render import to_rgb
 
 S2_BANDS = ["B02", "B03", "B04", "B08", "B11", "B12"]
 IN_CH = {"s1": 2, "s2": len(S2_BANDS), "rgb": 3}
+# Dynamic World (Brown et al., 2022) land-cover classes; label value k (1..9) -> index k-1. 0 = no data, 10 = cloud.
+DW_CLASSES = ["water", "trees", "grass", "flooded_vegetation", "crops", "scrub", "built", "bare", "snow_ice"]
+# Dynamic World class -> SatQuery's four measured classes (landcover.py), for comparison and for the existing tools
+DW_TO_SATQUERY = {"water": "water", "flooded_vegetation": "water", "trees": "vegetation", "grass": "vegetation",
+                  "crops": "vegetation", "scrub": "vegetation", "built": "built_up", "bare": "bare_soil",
+                  "snow_ice": "bare_soil"}
 
 
 def variant_for(r: Raster) -> str:
@@ -40,7 +46,32 @@ def model_input(r: Raster, variant: str) -> np.ndarray:
     return np.transpose(to_rgb(r), (2, 0, 1)).astype(np.float32) / 255.0
 
 
-def build_unet(in_ch: int, base: int = 16):
+def build_unet(in_ch: int, base: int = 16, n_out: int = 1):
+    """U-Net with n_out output maps: 1 = binary (water), len(DW_CLASSES) = land-cover classes."""
+    net = _unet(in_ch, base, n_out)
+    return net
+
+
+def predict_classes(model, x: np.ndarray, max_side: int = 1024) -> np.ndarray:
+    """Class probabilities (K, H, W) from a multi-class U-Net, for one input (C, H, W)."""
+    import torch
+    import torch.nn.functional as F
+
+    c, h, w = x.shape
+    t = torch.from_numpy(x)[None]
+    s = min(1.0, max_side / max(h, w))
+    if s < 1:
+        t = F.interpolate(t, scale_factor=s, mode="bilinear", align_corners=False)
+    hh, ww = t.shape[-2:]
+    t = F.pad(t, (0, (-ww) % 8, 0, (-hh) % 8), mode="reflect" if min(hh, ww) > 8 else "constant")
+    with torch.inference_mode():
+        p = torch.softmax(model(t), 1)[:, :, :hh, :ww]
+    if s < 1:
+        p = F.interpolate(p, size=(h, w), mode="bilinear", align_corners=False)
+    return p[0].numpy()
+
+
+def _unet(in_ch: int, base: int, n_out: int):
     import torch
     import torch.nn as nn
 
@@ -57,7 +88,7 @@ def build_unet(in_ch: int, base: int = 16):
             self.u3, self.c3 = nn.ConvTranspose2d(c[3], c[2], 2, 2), block(c[3], c[2])
             self.u2, self.c2 = nn.ConvTranspose2d(c[2], c[1], 2, 2), block(c[2], c[1])
             self.u1, self.c1 = nn.ConvTranspose2d(c[1], c[0], 2, 2), block(c[1], c[0])
-            self.out = nn.Conv2d(c[0], 1, 1)
+            self.out = nn.Conv2d(c[0], n_out, 1)
 
         def forward(self, x):
             x1 = self.d1(x)
@@ -67,7 +98,8 @@ def build_unet(in_ch: int, base: int = 16):
             y = self.c3(torch.cat([self.u3(x4), x3], 1))
             y = self.c2(torch.cat([self.u2(y), x2], 1))
             y = self.c1(torch.cat([self.u1(y), x1], 1))
-            return self.out(y)[:, 0]
+            y = self.out(y)
+            return y[:, 0] if n_out == 1 else y
 
     return UNet()
 
