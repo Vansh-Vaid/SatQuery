@@ -56,7 +56,7 @@ written), then D, F, G.
 | C. General land-cover change model | **Code done**: `seg_net` (9 classes), `events.py`, `change_mapper` (replaces the flood tool; used for every change question once trained; gate: beats the rule-based land cover on Dynamic World's held-out experts), `fetch_dynamic_world.py`, `train_landcover.py` (smoke-tested), radar water model. **Waiting on:** `kaggle/satquery_landcover_train.ipynb` |
 | E. Free-form VLM | **Code done**: SmolVLM path. **Waiting on:** `kaggle/satquery_smolvlm_train.ipynb` |
 | D. Burned areas | Dropped (Q14) |
-| F. India test set | Next |
+| F. India test set | **Code done**: nine Indian sites in `eval/real_pair_test.py --region india` (with trained-model scoring), per-country flood IoU; runs inside the land-cover notebook |
 | G. Docs and merge | After the Kaggle verdicts |
 
 Dataset paths for Sen1Floods11 were checked against the public bucket listing (splits include a Bolivia-only

@@ -27,7 +27,7 @@ pair**, ask a question in plain English, and SatQuery:
 | Optical–SAR complementary extraction | `landcover_optical` + `landcover_sar` → `optical_sar_fusion` (class-weighted decision fusion, SAR fills cloud gaps, per-class cross-sensor agreement, disagreement map); `rs_vlm` reads both images jointly. **Tested on 6 real Sentinel-2 + Sentinel-1 pairs:** 79.9% pixel accuracy fused vs 60.9% optical / 74.0% SAR (`eval/real_pair_test.py`) |
 | Agentic orchestration | `satquery/agent/`: planner (Claude `claude-opus-5-5` with structured JSON limited to the registry, or rules) → `validate_plan` (unknown/incompatible/unavailable tools dropped, dependencies auto-inserted, undeclared params rejected, values clipped) → executor → integrator |
 | Input checking | `satquery/imagery/validate.py`: per-check pass/warn/fail, chronological reordering, reprojection to a common grid, footprint IoU, joint valid-pixel coverage |
-| Formats | GeoTIFF/TIFF (any band count, uint8/uint16/float, linear or dB SAR); PNG/JPEG accepted for benchmark images with an explicit warning |
+| Formats | GeoTIFF/TIFF (any band count, uint8/uint16/float, linear or dB SAR); **Landsat 8/9** Collection-2 stacks (bands mapped onto Sentinel-2 roles, USGS scale factor); PNG/JPEG photos and screenshots (pairs of different sizes aligned on ORB landmarks with a RANSAC similarity fit; clouds and overlay text masked) |
 | Visual evidence, confidence, execution summary, downloadable reports | Web UI gallery (masks, heatmaps, boxes), confidence score + label (see D7; measured ECE 0.04-0.08 on three benchmarks), step-by-step trace (tool, params, status, timing, output), HTML report with embedded images + JSON trace |
 | Interactive GUI | FastAPI + web UI (`satquery/web/`), demo scenarios built in |
 | Test & demo scripts | `tests/` (59 tests), `scripts/smoke_vlm_pipeline.py`, `scripts/run_query.py`, `demo_data/` |
@@ -311,6 +311,18 @@ the S2 + S1 pairs were prompted as change questions: grounding answers were neve
 and the untrained model, which follows the prompt literally, is understated. Scoring now uses the exact
 training prompt; `kaggle/satquery_bench_data.ipynb` (CPU) and `kaggle/satquery_vlm_score.ipynb`
 (GPU, 1-2 h) re-score the same adapter on identical examples.
+
+## Generalisation (models trained on free Kaggle GPUs)
+
+Plan and decisions: [GENERALIZATION_PLAN.md](GENERALIZATION_PLAN.md). Live now: Landsat 8/9 input and screenshot pairs (above). Built and tested, waiting on their Kaggle runs; each goes live only if it passes its gate:
+
+| Piece | What it does | Gate |
+|---|---|---|
+| `change_mapper` + `events.py` | One U-Net maps each date into Dynamic World's 9 classes; any change question (flood, forest loss, fire scars, urban growth, drought, new cropland, snow loss, or one class) is read as a class change. No event has its own model. Trained on Dynamic World expert labels with Sentinel-2 from Planetary Computer (`training/fetch_dynamic_world.py`, `training/train_landcover.py`) | Beats the rule-based land cover on Dynamic World's held-out expert set |
+| Radar water model | Water under cloud for radar pairs (`training/train_flood.py --variants s1`, Sen1Floods11) | Beats Otsu on VV on the test split |
+| Small VLM | SmolVLM-256M + LoRA on VRSBench, served on the CPU for free-form questions (`training/prepare_vrsbench_vlm.py`, `eval/score_small_vlm.py`) | Beats the untrained model; under 15 s per answer on CPU |
+
+"Any place" tests, never used for training: Sen1Floods11 flood scenes (per country, India included, and Bolivia held out entirely) and nine Indian sites scored against ESA WorldCover (`python eval/real_pair_test.py --region india --landcover-ckpt checkpoints/landcover_seg.pt`). Notebooks: `kaggle/satquery_landcover_train.ipynb`, `kaggle/satquery_smolvlm_train.ipynb`.
 
 ## Repository layout
 

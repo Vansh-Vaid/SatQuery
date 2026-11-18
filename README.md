@@ -30,6 +30,8 @@ SatQuery works with three kinds of input:
 | **An optical image + a radar image of the same place** | "Use both images to find the built-up and water areas." · "What does the radar see under the clouds?" |
 | **Two images of the same place, taken at different dates** | "What changed between these dates, and where?" · "Has the built-up area increased, decreased or stayed the same?" |
 
+Images can be **Sentinel-1/2** or **Landsat 8/9** GeoTIFFs, or plain **photos and screenshots** (PNG/JPEG); two screenshots of the same place at different crops are lined up automatically by matching landmarks. Before/after questions about events also work, for example *"Has the area been flooded?"*.
+
 No images of your own? The app comes with **demo scenes** you can try straight away.
 
 > **Optical** images are normal photos from space, like Google Earth. **Radar** (SAR) images are made by a

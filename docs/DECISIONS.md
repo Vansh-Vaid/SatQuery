@@ -259,6 +259,12 @@ wins, the VQA model pools with two question-driven attention glimpses.
 *Not fixed yet:* the encoder is still frozen ImageNet weights, which is why vehicles (13.7%) and ships
 (26.1%) stay weak, and the new VQA model is slightly overconfident (mean confidence 62% vs 57% accuracy).
 
+### D20. Generalising: one land-cover model, events as class changes
+A model per disaster (floods, fires, deforestation...) would repeat the "one tool per task" problem the project set out to solve. Instead one U-Net maps each date into Dynamic World's nine classes, and an event is a few lines of vocabulary in `satquery/tools/events.py` (classes gained, classes lost). Floods are therefore never a training target; Sen1Floods11 is used only to test them, including Bolivia (kept out by the dataset) and India.
+*Labels:* Dynamic World expert labels (global, every biome) rather than the ESA WorldCover map (a model's output, with city blocks labelled built-up) or SEN12MS (500 m labels).
+*Gate:* the model is used only where it beats the rule-based land cover on held-out labels; until then the measured change tools answer, unchanged.
+*Also:* Landsat 8/9 bands are mapped onto Sentinel-2 roles so every optical tool works on 40 years of archive; screenshots of different sizes are aligned on landmarks instead of stretched, and the frontend redesign that removed the 3D globe was reverted at the owner's request.
+
 ### D9. Synthetic Sentinel-1/2 scenes with known ground truth for tests and demos
 They let tests assert correctness (fractions, change IoU, directions), not just "it runs", and make the
 demo work offline. Real-data accuracy is measured by `eval/` on the named benchmarks.
