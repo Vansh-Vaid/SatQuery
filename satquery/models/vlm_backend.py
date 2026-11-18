@@ -29,6 +29,16 @@ class VLMBackend(Protocol):
     def generate(self, images: list[Image.Image], prompt: str, max_new_tokens: int = 128) -> tuple[str, float | None]: ...
 
 
+def processor_kwargs(base_model: str, image_side: int | None = None) -> dict:
+    """Processor options per model family. SmolVLM / Idefics3 split large images into many tiles, which is slow on
+    a CPU; capping the longest side keeps one tile. Qwen keeps its defaults. Shared by training and serving."""
+    if any(k in base_model.lower() for k in ("smolvlm", "idefics")):
+        from satquery.config import settings
+        side = image_side or settings.vlm_image_side
+        return {"size": {"longest_edge": side}}
+    return {}
+
+
 class HFBackend:
     def __init__(self, base_model: str, adapter: str | None = None, device: str | None = None):
         self.base_model, self.adapter = base_model, adapter
@@ -45,7 +55,7 @@ class HFBackend:
         device = self._device or ("cuda" if torch.cuda.is_available() else "cpu")
         dtype = torch.bfloat16 if device == "cuda" and torch.cuda.is_bf16_supported() else (
             torch.float16 if device == "cuda" else torch.float32)
-        self._processor = AutoProcessor.from_pretrained(self.base_model)
+        self._processor = AutoProcessor.from_pretrained(self.base_model, **processor_kwargs(self.base_model))
         model = AutoModelForImageTextToText.from_pretrained(self.base_model, dtype=dtype)
         if self.adapter:
             from peft import PeftModel

@@ -198,6 +198,14 @@ class SatQueryAgent:
                     notes.append("change specialist confirmed by measured change" if a == b else
                                  f"change specialist ('{a}') and measured change ('{b}') disagree")
             boxes = ok["change_detector"].boxes if "change_detector" in ok else []
+            cm = ok.get("change_mapper")
+            if cm is not None and primary_name != "cdvqa_vqa":   # trained land-cover model; measured change cross-checks
+                primary_name, boxes = "change_mapper", list(cm.boxes)
+                cq = ok.get("change_qa")
+                a, b = cm.facts.get("short_answer"), (cq.facts.get("short_answer") if cq is not None else None)
+                if a in ("yes", "no") and b in ("yes", "no"):
+                    notes.append("land-cover model confirmed by measured change" if a == b else
+                                 f"land-cover model ('{a}') and measured change ('{b}') disagree")
         elif task is TaskType.CROSS_MODAL:
             rq = ok.get("landcover_reasoner")
             if plan.intent == "locate" and "region_grounder" in ok:
@@ -280,7 +288,7 @@ class SatQueryAgent:
         if any("disagree" in n for n in notes):
             conf *= 0.7
         elif any("confirmed" in n for n in notes):
-            xc = ok.get("change_qa") if primary_name == "cdvqa_vqa" else ok.get("landcover_reasoner")
+            xc = ok.get("change_qa") if primary_name in ("cdvqa_vqa", "change_mapper") else ok.get("landcover_reasoner")
             other = (xc.confidence if xc is not None else None) or 0.5
             conf = 1 - (1 - conf) * (1 - 0.5 * other)
         if task is TaskType.CAPTION and primary_name != "landcover_reasoner" and "landcover_reasoner" in ok:

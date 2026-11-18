@@ -34,6 +34,8 @@ class Settings:
     vlm_backend: str = field(default_factory=lambda: os.getenv("SATQUERY_VLM_BACKEND", "off"))
     vlm_base_model: str = field(default_factory=lambda: os.getenv("SATQUERY_VLM_BASE", "Qwen/Qwen3-VL-2B-Instruct"))
     vlm_adapter: str | None = field(default_factory=lambda: os.getenv("SATQUERY_VLM_ADAPTER") or None)
+    # longest image side fed to small VLMs (SmolVLM): one tile instead of many keeps CPU answers fast
+    vlm_image_side: int = field(default_factory=lambda: int(os.getenv("SATQUERY_VLM_IMAGE_SIDE", "512")))
     vlm_endpoint: str | None = field(default_factory=lambda: os.getenv("SATQUERY_VLM_ENDPOINT") or None)
     vlm_timeout_s: float = field(default_factory=lambda: float(os.getenv("SATQUERY_VLM_TIMEOUT", "180")))
 
@@ -44,6 +46,8 @@ class Settings:
     vrsbench_checkpoint: str = field(default_factory=lambda: os.getenv("SATQUERY_VRSBENCH_CKPT", "checkpoints/vrsbench_vqa.pt"))
     cdvqa_checkpoint: str = field(default_factory=lambda: os.getenv("SATQUERY_CDVQA_CKPT", "checkpoints/cdvqa.pt"))
     rsvqa_checkpoint: str = field(default_factory=lambda: os.getenv("SATQUERY_RSVQA_CKPT", "checkpoints/rsvqa_lr.pt"))
+    flood_checkpoint: str = field(default_factory=lambda: os.getenv("SATQUERY_FLOOD_CKPT", "checkpoints/flood_seg.pt"))
+    landcover_checkpoint: str = field(default_factory=lambda: os.getenv("SATQUERY_LANDCOVER_CKPT", "checkpoints/landcover_seg.pt"))
 
     # --- Learned change detector (optional) ---------------------------------
     change_checkpoint: str | None = field(default_factory=lambda: os.getenv("SATQUERY_CHANGE_CKPT") or None)

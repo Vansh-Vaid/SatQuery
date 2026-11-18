@@ -98,12 +98,14 @@ def main() -> None:
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     use_bf16 = dev == "cuda" and torch.cuda.is_bf16_supported()
     amp_dtype = torch.bfloat16 if use_bf16 else torch.float16
-    processor = AutoProcessor.from_pretrained(args.base)
+    from satquery.models.vlm_backend import processor_kwargs
+    processor = AutoProcessor.from_pretrained(args.base, **processor_kwargs(args.base))
     model = AutoModelForImageTextToText.from_pretrained(args.base, dtype=torch.bfloat16 if use_bf16 else torch.float32)
     model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
     model.enable_input_require_grads()
     lcfg = LoraConfig(r=args.rank, lora_alpha=args.alpha, lora_dropout=args.dropout, bias="none",
-                      target_modules=r".*language_model.*\.(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)",
+                      # Qwen3-VL names its text layers language_model, SmolVLM (Idefics3) text_model
+                      target_modules=r".*(language_model|text_model).*\.(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)",
                       modules_to_save=["merger"] if args.tune_merger else None, task_type="CAUSAL_LM")
     model = get_peft_model(model, lcfg)
     model.print_trainable_parameters()

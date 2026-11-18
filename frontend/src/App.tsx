@@ -5,7 +5,6 @@ import EvidenceCard from "./components/EvidenceCard";
 import GeoCanvas from "./components/GeoCanvas";
 import HoverBeam from "./components/HoverBeam";
 import IngestPanel, { modeOf } from "./components/IngestPanel";
-import OrbitalBackdrop from "./components/OrbitalBackdrop";
 import QueryDeck from "./components/QueryDeck";
 import TracePanel from "./components/TracePanel";
 import { useReducedMotion } from "./hooks/motion";
@@ -66,7 +65,6 @@ export default function App() {
   const [result, setResult] = useState<AnalyzeResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [scanKey, setScanKey] = useState(0);
   const [beam, setBeam] = useState<{ ids: string[]; el: HTMLElement | null }>({ ids: [], el: null });
   const [hoverBox, setHoverBox] = useState<string | null>(null);
   const feed = useRef<HTMLDivElement>(null);
@@ -130,7 +128,6 @@ export default function App() {
     setBusy(true);
     setError("");
     setResult(null);
-    if (mode !== "single") setScanKey((k) => k + 1); // SAR C-band pulse for cross-modal / change workflows
     try {
       setResult(await api.analyze(mode, demo, activeSlots, q));
     } catch (e) {
@@ -154,7 +151,6 @@ export default function App() {
   const images = viewer?.images?.length ? viewer.images : inspect?.images ?? [];
   const width = viewer?.width ?? inspect?.images[0]?.size[1] ?? 1;
   const height = viewer?.height ?? inspect?.images[0]?.size[0] ?? 1;
-  const focus = images[0]?.bbox_wgs84 ?? null;
   const chips = scenarios.find((s) => s.id === demo)?.queries ?? REPRESENTATIVE;
   const highlighted = useMemo(() => new Set([...beam.ids, ...(hoverBox ? [hoverBox] : [])]), [beam.ids, hoverBox]);
   const supporting = (result?.evidence ?? []).filter((e) => !e.primary);
@@ -165,8 +161,6 @@ export default function App() {
 
   return (
     <div className="app">
-      <OrbitalBackdrop busy={busy} focus={focus} reduced={reduced} />
-      {scanKey > 0 && !reduced && <div key={scanKey} className="radar-pulse" aria-hidden="true" />}
       <a className="skip" href="#query">Skip to query</a>
 
       <header className="topbar">

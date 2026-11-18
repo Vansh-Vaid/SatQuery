@@ -1,16 +1,13 @@
-// SatQuery AI landing page: a short front door to the console.
-// Hero (draggable 3D globe + "try asking") -> ticker -> 3D multimodal layer stack (live output)
-// -> three-step "how it works" with live facts -> call to action. Off-white / orange / olive theme.
-import { memo, useEffect, useRef, useState } from "react";
+// SatQuery AI landing page: a short front door to the console, built from real output.
+// Hero (live before/after frame + "try asking") -> layer viewer (live output) -> how it works (live facts)
+// -> measured results -> call to action. Off-white / orange / olive theme; no decorative 3D.
+import { memo, useEffect, useState } from "react";
 import type { AnalyzeResult, Mode } from "../api";
-import { fmtLat, fmtLon } from "../api";
 import { useReducedMotion } from "../hooks/motion";
-import { Contours, Ticker } from "./Flourishes";
-import HeroGlobe from "./HeroGlobe";
 import { useReveal } from "./interactions";
-import LayerStack, { type StackLayer } from "./LayerStack";
-import { scene, TARGET } from "./store";
-import { DEMO_RUNS, useDemoRuns, useTools } from "./useDemoRuns";
+import { DEMO_RUNS, type RunState, useDemoRuns, useTools } from "./useDemoRuns";
+
+type StackLayer = { key: string; title: string; sub: string; png?: string; tint: string; overlay?: boolean };
 
 const consoleUrl = (mode: Mode, q?: string) => {
   const p = new URLSearchParams({ mode, demo: DEMO_RUNS[mode].demo });
@@ -25,12 +22,6 @@ const HERO_QUERIES: { q: string; mode: Mode }[] = [
   { q: "Has the built-up area increased, decreased, or remained unchanged?", mode: "bitemporal" },
   { q: "Describe the land-cover and major objects visible in this image.", mode: "single" },
 ];
-const MORE_QUERIES: { q: string; mode: Mode }[] = [
-  { q: "How much of the area changed?", mode: "bitemporal" },
-  { q: "Is this a rural or urban area?", mode: "single" },
-  { q: "What did the water turn into?", mode: "bitemporal" },
-  { q: "How much of the scene is water?", mode: "cross_modal" },
-];
 // Held-out benchmark results (docs/TECHNICAL.md, "Measured results")
 const PROOF: { score: number; title: string; source: string; before?: number; ref?: number; note?: string }[] = [
   { score: 95.7, title: "Recognising land use", source: "EuroSAT · 5,399 Sentinel-2 test images · 10 classes",
@@ -38,11 +29,11 @@ const PROOF: { score: number; title: string; source: string; before?: number; re
   { score: 84.6, title: "Answering questions about one image", source: "RSVQA-LR · 10,004 test questions", before: 41.8 },
   { score: 65.1, title: "Answering questions about change", source: "CDVQA · 6,000 questions on real aerial image pairs",
     before: 18.7, ref: 67.7 },
-  { score: 54.0, title: "Answering questions about sharp aerial photos", source: "VRSBench · 37,409 questions about planes, ships, vehicles…",
+  { score: 56.0, title: "Answering questions about sharp aerial photos", source: "VRSBench · 37,409 questions about planes, ships, vehicles…",
     before: 23.8 },
+  { score: 38.5, title: "Finding a described object", source: "VRSBench · 16,159 referring expressions (box overlap ≥ 50%)",
+    before: 0 },
 ];
-
-const TAG: Record<Mode, string> ={ single: "Single image", cross_modal: "Optical + radar", bitemporal: "Before & after" };
 
 function useTypewriter(items: string[], reduced: boolean) {
   const [i, setI] = useState(0);
@@ -101,6 +92,60 @@ const MODES: { id: Mode; label: string; claim: string }[] = [
   { id: "bitemporal", label: "Before & after", claim: "Two dates on one grid: where it changed, what it changed into, and by how much." },
 ];
 
+/** Live before/after frame: the real demo pair, a swipe slider, the change overlay and the backend's answer. */
+function EvidenceFrame({ run }: { run: RunState }) {
+  const [split, setSplit] = useState(50);
+  const [showChange, setShowChange] = useState(true);
+  const v = run.result?.viewer;
+  const before = v?.images[0]?.layers[0]?.png, after = v?.images[1]?.layers[0]?.png;
+  const change = v?.overlays.find((o) => o.title === "change mask")?.png;
+  const r = run.result;
+  return (
+    <figure className="lp-frame" aria-label="Live analysis of a before-and-after Sentinel-2 pair">
+      <div className="lp-frame-img">
+        {before && after ? (
+          <>
+            <img src={after} alt="After: 5 June 2025, Sentinel-2 true colour" />
+            <img src={before} alt="Before: 1 June 2024, Sentinel-2 true colour" style={{ clipPath: `inset(0 ${100 - split}% 0 0)` }} />
+            {showChange && change && <img className="lp-frame-overlay" src={change} alt="" />}
+            <span className="lp-frame-tag left">Before · 2024</span><span className="lp-frame-tag right">After · 2025</span>
+            <i className="lp-frame-rule" style={{ left: `${split}%` }} aria-hidden="true" />
+          </>
+        ) : <div className="lp-frame-wait" role="status">{run.status === "error" ? "Demo unavailable: the backend is offline" : "Running the agent on a demo pair…"}</div>}
+      </div>
+      <div className="lp-frame-controls">
+        <label className="lp-frame-slider">
+          <span className="sr-only">Swipe between before and after</span>
+          <input type="range" min={0} max={100} value={split} onChange={(e) => setSplit(+e.target.value)}
+            aria-label="Swipe between before and after" disabled={!before} />
+        </label>
+        <label className="lp-frame-toggle"><input type="checkbox" checked={showChange} onChange={(e) => setShowChange(e.target.checked)} /> Show change</label>
+      </div>
+      <figcaption className="lp-frame-answer">
+        <span className="lp-frame-q">“{DEMO_RUNS.bitemporal.query}”</span>
+        {r ? <><b>{r.answer.split(". ")[0]}.</b><em>{Math.round((r.confidence ?? 0) * 100)}% confidence · {r.confidence_label} · {Math.round(r.trace.duration_ms)} ms</em></>
+          : <em>{run.status === "error" ? "Open the console to try it." : "Answering…"}</em>}
+      </figcaption>
+    </figure>
+  );
+}
+
+/** Flat layer viewer: the base image with the selected (or all) evidence layers on top. */
+function LayerView({ layers, selected }: { layers: StackLayer[]; selected: number | null }) {
+  const base = layers.find((l) => !l.overlay && l.png);
+  const pick = selected != null ? layers[selected] : null;
+  const shown = pick && !pick.overlay ? pick : base;
+  return (
+    <div className="lp-layers">
+      {shown?.png ? <img src={shown.png} alt={shown.title} /> : <div className="lp-frame-wait" role="status">Loading the layers…</div>}
+      {layers.filter((l) => l.overlay && l.png && (pick == null || pick === l)).map((l) => (
+        <img key={l.key} className="lp-frame-overlay" src={l.png} alt={l.title} />
+      ))}
+      <span className="lp-layers-tag">{pick ? pick.title : "All layers"}</span>
+    </div>
+  );
+}
+
 function Logo() {
   return (
     <svg className="lp-logo" viewBox="0 0 32 32" aria-hidden="true">
@@ -118,12 +163,9 @@ export default function Landing() {
   const [mode, setMode] = useState<Mode>("cross_modal");
   const [hovered, setHovered] = useState<number | null>(null);
   const [scrolled, setScrolled] = useState(false);
-  const marker = useRef<HTMLButtonElement>(null);
-  const tele = [useRef<HTMLSpanElement>(null), useRef<HTMLSpanElement>(null)];
-  const globe = useRef<HTMLDivElement>(null);
-  useReveal([runs.cross_modal.status, tools.length, mode]);
+  useReveal([runs.bitemporal.status, runs.cross_modal.status, tools.length, mode]);
 
-  useEffect(() => { load("cross_modal"); }, [load]);
+  useEffect(() => { load("bitemporal"); load("cross_modal"); }, [load]);
   useEffect(() => { load(mode); }, [mode, load]);
 
   useEffect(() => {
@@ -132,46 +174,8 @@ export default function Landing() {
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
-
-  // drag the globe to rotate it
-  useEffect(() => {
-    const el = globe.current;
-    if (!el) return;
-    let x = 0, y = 0;
-    const down = (e: PointerEvent) => {
-      if ((e.target as Element).closest("button,a")) return;
-      scene.dragging = true; x = e.clientX; y = e.clientY;
-      el.setPointerCapture(e.pointerId); el.classList.add("grabbing");
-    };
-    const move = (e: PointerEvent) => {
-      if (!scene.dragging) return;
-      scene.dragVel = (e.clientX - x) * 0.005;
-      scene.dragTilt = Math.max(-0.7, Math.min(0.7, scene.dragTilt + (e.clientY - y) * 0.004));
-      x = e.clientX; y = e.clientY;
-    };
-    const up = () => { scene.dragging = false; el.classList.remove("grabbing"); };
-    el.addEventListener("pointerdown", down); el.addEventListener("pointermove", move);
-    el.addEventListener("pointerup", up); el.addEventListener("pointercancel", up);
-    return () => { el.removeEventListener("pointerdown", down); el.removeEventListener("pointermove", move);
-      el.removeEventListener("pointerup", up); el.removeEventListener("pointercancel", up); };
-  }, []);
-
-  // when nobody is interacting with the stack, lift each layer in turn so the section never sits still
-  const userHover = useRef(false);
-  const [autoLayer, setAutoLayer] = useState<number | null>(null);
-  useEffect(() => {
-    if (reduced) return;
-    const n = layersFor(mode, runs[mode].result).length;
-    let i = 0;
-    const id = setInterval(() => {
-      if (userHover.current) return;
-      setAutoLayer(i % (n + 1) === n ? null : i % (n + 1));
-      i++;
-    }, 1700);
-    return () => clearInterval(id);
-  }, [mode, runs, reduced]);
-  const onLayerHover = (i: number | null) => { userHover.current = i !== null; setHovered(i); };
-  const lifted = hovered ?? autoLayer;
+  const onLayerHover = (i: number | null) => setHovered(i);
+  const lifted = hovered;
 
   const run = runs[mode];
   const layers = layersFor(mode, run.result);
@@ -217,30 +221,15 @@ export default function Landing() {
               </div>
             </div>
 
-            <div className="lp-globe" data-reveal style={{ ["--d" as string]: "120ms" }}>
-              <div className="lp-globe-stage" ref={globe}>
-                <Contours />
-                <HeroGlobe reduced={reduced} marker={marker} telemetry={tele} />
-                <button ref={marker} className="lp-marker" onClick={() => scrollTo("seeing")}
-                  aria-label="Demo scene near Lake Constance. View its analysis layers.">
-                  <span className="lp-marker-label"><b>Demo scene</b>{fmtLat(TARGET.lat)}, {fmtLon(TARGET.lon)}<em>View its layers ↓</em></span>
-                </button>
-              </div>
-              <dl className="lp-telemetry" aria-label="Live satellite positions (illustrative orbits)">
-                <div><dt><i className="dot sar" />Sentinel-1 · radar</dt><dd><span ref={tele[0]}>—</span></dd></div>
-                <div><dt><i className="dot msi" />Sentinel-2 · optical</dt><dd><span ref={tele[1]}>—</span></dd></div>
-              </dl>
-            </div>
+            <div data-reveal style={{ ["--d" as string]: "120ms" }}><EvidenceFrame run={runs.bitemporal} /></div>
           </div>
         </section>
-
-        <Ticker items={[...HERO_QUERIES, ...MORE_QUERIES].map((h) => ({ q: h.q, href: consoleUrl(h.mode, h.q), tag: TAG[h.mode] }))} />
 
         <section id="seeing" className="lp-band" aria-labelledby="seeing-title">
           <div className="lp-wrap">
             <div className="lp-seeing">
               <div className="lp-seeing-stage" data-reveal>
-                <LayerStack layers={layers} hovered={lifted} onHover={onLayerHover} reduced={reduced} />
+                <LayerView layers={layers} selected={lifted} />
                 <p className={`lp-source ${run.status === "ok" ? "live" : ""}`} role="status">
                   {run.status === "ok" ? "Live output from the running backend · demo Sentinel scenes"
                     : run.status === "loading" ? "Running the agent…" : "Illustrative render · backend offline"}

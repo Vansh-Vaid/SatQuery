@@ -81,3 +81,49 @@ def test_mismatched_grid_is_resized_with_warning(s2):
     small.crs = small.transform = small.bounds = None
     rep = validate_inputs([s2, small])
     assert rep.ok and rep.rasters[1].shape == s2.shape
+
+
+# ---- Landsat 8/9 -----------------------------------------------------------------------------------------
+def _write_landsat(path, s2, names=None, scale="c2"):
+    """The synthetic Sentinel-2 scene re-encoded as a Landsat 8/9 Collection-2 Level-2 stack."""
+    import rasterio
+    from rasterio.transform import Affine
+    order = ["B01", "B02", "B03", "B04", "B08", "B11", "B12"]
+    refl = np.stack([s2.data[s2.bands.index(b)] for b in order])
+    dn = np.round((refl + 0.2) / 0.0000275).astype(np.uint16) if scale == "c2" else refl.astype(np.float32)
+    with rasterio.open(path, "w", driver="GTiff", height=dn.shape[1], width=dn.shape[2], count=7,
+                       dtype=dn.dtype, crs=s2.crs, transform=Affine(*s2.transform)) as dst:
+        dst.write(dn)
+        for i, n in enumerate(names or []):
+            dst.set_band_description(i + 1, n)
+    return refl
+
+
+def test_landsat_c2_stack_maps_onto_sentinel2_bands(tmp_path, s2):
+    refl = _write_landsat(tmp_path / "scene.tif", s2, names=[f"SR_B{i}" for i in range(1, 8)])
+    r = load_image(tmp_path / "scene.tif")
+    assert r.modality is Modality.S2_MS and r.meta["sensor"] == "landsat"
+    assert r.bands == ["B01", "B02", "B03", "B04", "B08", "B11", "B12"]
+    assert np.allclose(r.data, np.clip(refl, 0, 1.5), atol=2e-3)       # USGS scale factor and offset undone
+
+
+def test_landsat_recognised_from_file_name_and_gives_same_land_cover(tmp_path, s2):
+    from satquery.tools.landcover import classify
+    _write_landsat(tmp_path / "LC09_L2SP_146040_20240601_scene.tif", s2)
+    r = load_image(tmp_path / "LC09_L2SP_146040_20240601_scene.tif")
+    assert r.meta["sensor"] == "landsat" and "B08" in r.bands and "B11" in r.bands
+    a, b = classify(s2).label_map(), classify(r).label_map()
+    assert (a == b).mean() > 0.9        # the optical tools read Landsat like Sentinel-2
+
+
+def test_sentinel_file_with_b4_style_names_is_not_mistaken_for_landsat(tmp_path, s2):
+    import rasterio
+    from rasterio.transform import Affine
+    four = np.stack([s2.data[s2.bands.index(b)] for b in ("B02", "B03", "B04", "B08")]).astype(np.float32)
+    with rasterio.open(tmp_path / "s2_scene.tif", "w", driver="GTiff", height=four.shape[1], width=four.shape[2],
+                       count=4, dtype="float32", crs=s2.crs, transform=Affine(*s2.transform)) as dst:
+        dst.write(four)
+        for i, n in enumerate(["B2", "B3", "B4", "B8"]):
+            dst.set_band_description(i + 1, n)
+    r = load_image(tmp_path / "s2_scene.tif")
+    assert r.meta.get("sensor") != "landsat" and r.modality is Modality.S2_MS
