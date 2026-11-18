@@ -44,6 +44,7 @@ class Settings:
     vrsbench_checkpoint: str = field(default_factory=lambda: os.getenv("SATQUERY_VRSBENCH_CKPT", "checkpoints/vrsbench_vqa.pt"))
     cdvqa_checkpoint: str = field(default_factory=lambda: os.getenv("SATQUERY_CDVQA_CKPT", "checkpoints/cdvqa.pt"))
     rsvqa_checkpoint: str = field(default_factory=lambda: os.getenv("SATQUERY_RSVQA_CKPT", "checkpoints/rsvqa_lr.pt"))
+    flood_checkpoint: str = field(default_factory=lambda: os.getenv("SATQUERY_FLOOD_CKPT", "checkpoints/flood_seg.pt"))
 
     # --- Learned change detector (optional) ---------------------------------
     change_checkpoint: str | None = field(default_factory=lambda: os.getenv("SATQUERY_CHANGE_CKPT") or None)

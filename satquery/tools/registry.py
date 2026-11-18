@@ -9,6 +9,7 @@ from satquery.tools.algorithmic import (LandcoverOptical, LandcoverReasoner, Lan
 from satquery.tools.base import TASK_DESCRIPTIONS, TaskType, Tool
 from satquery.tools.change import ChangeDetector, ChangeQA, ChangeSemantics
 from satquery.tools.cdvqa import CDVQASpecialist
+from satquery.tools.flood import FloodMapper
 from satquery.tools.hrground import HighResGrounder
 from satquery.tools.hrvqa import HighResVQA
 from satquery.tools.rsvqa import RSVQASpecialist
@@ -66,6 +67,7 @@ def default_registry(vlm: RSVLM | None = None) -> Registry:
         ChangeDetector(),
         ChangeSemantics(),
         ChangeQA(),
+        FloodMapper(),
     ])
 
 

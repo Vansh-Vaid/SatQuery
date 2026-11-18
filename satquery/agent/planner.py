@@ -106,6 +106,9 @@ class RulePlanner:
             if intent != "describe" and registry.available("cdvqa_vqa")[0] and all(
                     r.modality.is_optical for r in report.rasters):
                 steps.append(PlanStep("cdvqa_vqa", {}, "answer from the CDVQA-trained change specialist"))
+            if re.search(r"\b(flood|inundat|submerg|waterlogg|deluge)", query.lower()) and \
+                    registry.available("flood_mapper")[0]:
+                steps.append(PlanStep("flood_mapper", {}, "map newly flooded land with the Sen1Floods11 water model"))
             if vlm_ok and intent == "describe":
                 steps.append(PlanStep("rs_vlm", {}, "auxiliary visual change description"))
         return Plan(task=task, intent=intent, steps=steps, planner=self.name,
