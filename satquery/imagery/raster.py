@@ -36,6 +36,10 @@ S2_LAYOUTS: dict[int, list[str]] = {
 }
 RGB_BANDS = ["R", "G", "B"]
 SAR_LAYOUTS: dict[int, list[str]] = {2: ["VV", "VH"], 1: ["VV"]}
+# Landsat 8/9 OLI bands -> the Sentinel-2 band with the same role, so every optical tool works on Landsat:
+# coastal, blue, green, red, NIR, SWIR-1, SWIR-2 (B8 panchromatic, B9 cirrus and B10/11 thermal are dropped).
+LANDSAT_TO_S2 = {1: "B01", 2: "B02", 3: "B03", 4: "B04", 5: "B08", 6: "B11", 7: "B12"}
+LANDSAT_LAYOUTS: dict[int, list[int]] = {7: [1, 2, 3, 4, 5, 6, 7], 6: [2, 3, 4, 5, 6, 7], 4: [2, 3, 4, 5]}
 
 # Aliases so an RGB image can answer requests for Sentinel-2 visible bands and vice versa.
 _BAND_ALIASES = {"R": "B04", "G": "B03", "B": "B02", "RED": "B04", "GREEN": "B03",

@@ -21,7 +21,15 @@ from typing import Any
 import numpy as np
 
 from satquery.config import settings
-from satquery.imagery.raster import RGB_BANDS, S2_LAYOUTS, SAR_LAYOUTS, Modality, Raster
+from satquery.imagery.raster import (
+    LANDSAT_LAYOUTS,
+    LANDSAT_TO_S2,
+    RGB_BANDS,
+    S2_LAYOUTS,
+    SAR_LAYOUTS,
+    Modality,
+    Raster,
+)
 
 GEO_EXT = {".tif", ".tiff", ".gtiff"}
 BENCH_EXT = {".png", ".jpg", ".jpeg"}
@@ -194,9 +202,16 @@ def _load_tiff(path: Path, name: str, hint: str | None, acquired: str | None) ->
         bounds = tuple(src.bounds) if crs else None
         georef = bool(crs) and not src.transform.is_identity
 
-    modality, source = _resolve_modality(hint, tags.get("SATQUERY_MODALITY"), descs, name, raw)
-    bands = _band_names(modality, c, descs)
-    data, info = _to_canonical(raw, modality, src_dtype)
+    landsat = None if _modality_from_hint(hint) is Modality.SAR else _landsat_bands(descs, name, c)
+    if landsat is not None:
+        modality, source = Modality.S2_MS, "landsat"
+        keep, bands = landsat
+        raw = raw[keep]
+        data, info = _landsat_reflectance(raw)
+    else:
+        modality, source = _resolve_modality(hint, tags.get("SATQUERY_MODALITY"), descs, name, raw)
+        bands = _band_names(modality, c, descs)
+        data, info = _to_canonical(raw, modality, src_dtype)
     acq = parse_date(acquired) or parse_date(tags.get("ACQUISITION_DATE")) or parse_date(
         tags.get("DATE")) or parse_date(tags.get("TIFFTAG_DATETIME")) or parse_date(name)
     return Raster(
@@ -250,6 +265,49 @@ def _load_pil(path: Path, name: str, hint: str | None, acquired: str | None) -> 
         name=name, acquired=parse_date(acquired) or parse_date(name),
         meta={"modality_source": "hint" if hinted else "channels", **info},
     )
+
+
+_LANDSAT_NAME = re.compile(r"(^|[^a-z0-9])(lc0?[89]|lc08|lc09|l2sp|landsat[ _-]?[89]?)([^a-z0-9]|$)", re.I)
+_LANDSAT_BAND = re.compile(r"^(?:SR_)?B(?:AND)?[ _]?0?(\d{1,2})$", re.I)
+
+
+def _landsat_bands(descs: list[str], name: str, count: int) -> tuple[list[int], list[str]] | None:
+    """Landsat 8/9 stacks -> (band indices to keep, Sentinel-2 names), or None if this is not Landsat.
+
+    Recognised by explicit SR_B* band names, or by a Landsat file name (LC08/LC09/L2SP) with band names B1..B7
+    or a 4/6/7-band stack. Sentinel files also use names like B4, so plain 'B4' alone never means Landsat."""
+    named = [d.strip() for d in descs]
+    by_name = sum(1 for d in named if d.upper().startswith("SR_B")) >= 2
+    if not (by_name or _LANDSAT_NAME.search(Path(name).stem)):
+        return None
+    nums = [(_LANDSAT_BAND.match(d) or [None, None])[1] for d in named]
+    if all(nums):
+        keep = [i for i, n in enumerate(nums) if int(n) in LANDSAT_TO_S2]
+        if len(keep) >= 3:
+            return keep, [LANDSAT_TO_S2[int(nums[i])] for i in keep]
+    if count in LANDSAT_LAYOUTS:
+        return list(range(count)), [LANDSAT_TO_S2[b] for b in LANDSAT_LAYOUTS[count]]
+    return None
+
+
+def _landsat_reflectance(raw: np.ndarray) -> tuple[np.ndarray, dict[str, Any]]:
+    """Collection-2 Level-2 surface reflectance DN -> reflectance (USGS: 0.0000275 x DN - 0.2); data already
+    scaled (e.g. Earth Engine exports in 0-1, or 0-10000) is recognised from its range."""
+    data = raw.astype(np.float32)
+    finite = data[np.isfinite(data)]
+    if finite.size == 0:
+        return data, {"scaling": "empty", "sensor": "landsat"}
+    p1, p99 = (float(v) for v in np.percentile(finite, [1, 99]))
+    if p99 <= 2.0:
+        info = "reflectance"
+    elif p1 >= 5000:   # C2 L2 offset: zero reflectance is DN 7273
+        data = data * 0.0000275 - 0.2
+        info = "Landsat C2 L2 DN x 0.0000275 - 0.2"
+    else:
+        data = data / 10000.0
+        info = "DN/10000"
+    np.clip(data, 0.0, 1.5, out=data)
+    return data, {"scaling": info, "sensor": "landsat"}
 
 
 def _resolve_modality(hint: str | None, tag: str | None, descs: list[str], name: str,
