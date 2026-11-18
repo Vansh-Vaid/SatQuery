@@ -124,10 +124,14 @@ def main() -> None:
             try:
                 return fetch_tile(r, zpath, index[r["dw_id"]], out, catalog)
             except Exception as e:   # one bad scene must not stop the run
-                return f"error: {type(e).__name__}"
+                return f"error: {type(e).__name__}: {str(e)[:160]}"
+        print(f"{split}: {len(rows)} tiles selected", flush=True)
         with ThreadPoolExecutor(args.workers) as ex:
             results = list(ex.map(job, rows))
-        print(split, {k: results.count(k) for k in sorted(set(results))}, flush=True)
+        kinds = [r.split(":")[0] if r.startswith("error") else r for r in results]
+        print(split, {k: kinds.count(k) for k in sorted(set(kinds))}, flush=True)
+        for msg in sorted({r for r in results if r.startswith("error")})[:5]:   # show what went wrong
+            print("  ", msg, flush=True)
     sys.exit(0 if any((args.out / "train").glob("*.npz")) else "no training tiles were built")
 
 
