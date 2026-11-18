@@ -106,3 +106,44 @@ def test_unchanged_pair_reports_no_change(labels):
 def test_change_qa_question_types(s2, s2_t2, q, short):
     ctx = run_chain(q, [s2, s2_t2], ["change_detector", "change_semantics", "change_qa"])
     assert ctx.upstream["change_qa"].facts["short_answer"] == short
+
+
+# ---- flood questions and undated / screenshot pairs ------------------------------------------------------
+def _rgb_copy(r, name, acquired=None, data=None):
+    """The scene as a true-colour PNG without georeferencing or a capture date, like a screenshot."""
+    import dataclasses
+    rgb = r.data[[r.bands.index(b) for b in ("B04", "B03", "B02")]] if data is None else data
+    return dataclasses.replace(r, data=rgb, bands=["R", "G", "B"], source_format="png", crs=None, transform=None,
+                               bounds=None, name=name, acquired=acquired)
+
+
+def test_flood_question_on_sentinel_pair_needs_new_water(s2, s2_t2):
+    # in the demo pair water shrinks (it becomes bare soil): measured with infrared bands, that is no flood
+    ctx = run_chain("Has the area been flooded?", [s2, s2_t2], ["change_detector", "change_semantics", "change_qa"])
+    qa = ctx.upstream["change_qa"]
+    assert qa.facts["question_type"] == "flood" and qa.facts["short_answer"] == "no"
+
+
+def test_flood_question_on_true_colour_pair_counts_grey_ground_and_says_so(s2):
+    import numpy as np
+    before = _rgb_copy(s2, "before.png")
+    flooded = before.data.copy()
+    flooded[:, 40:90, 30:110] = np.array([150, 140, 125]).reshape(3, 1, 1).astype(flooded.dtype)  # muddy grey-brown
+    after = _rgb_copy(s2, "after.png", data=flooded)
+    ctx = run_chain("Is there flooding?", [before, after], ["change_detector", "change_semantics", "change_qa"])
+    qa = ctx.upstream["change_qa"]
+    assert qa.facts["short_answer"] == "yes" and "true-colour" in qa.answer and qa.confidence < 0.6
+    assert "the first image and the second image" in ctx.upstream["change_detector"].answer   # no fake dates
+    same = _rgb_copy(s2, "before_again.png")
+    ctx = run_chain("Is there flooding?", [before, same], ["change_detector", "change_semantics", "change_qa"])
+    assert ctx.upstream["change_qa"].facts["short_answer"] == "no"   # nothing changed: no flood
+
+
+def test_cdvqa_specialist_steps_aside_on_flood_questions(s2, s2_t2):
+    from satquery.tools.cdvqa import CDVQASpecialist
+    tool = CDVQASpecialist()
+    if not tool.available()[0]:
+        pytest.skip("CDVQA specialist not trained")
+    rep = validate_inputs([_rgb_copy(s2, "a.png"), _rgb_copy(s2_t2, "b.png")])
+    res = tool.run(ToolContext("Has the area been flooded?", rep.config, rep.rasters), tool.defaults())
+    assert res.status == "unsupported"

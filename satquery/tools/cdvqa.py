@@ -83,6 +83,9 @@ class CDVQASpecialist(Tool):
         if re.search(r"\bor\b", ql) or not re.match(r"(what|have|has|did|does|how|is|are|was|were)\b", ql):
             return ToolResult(self.spec.name, "unsupported",
                               notes=["Question form not covered by CDVQA (choice or open question); abstaining."])
+        if re.search(r"\b(flood|inundat|submerg|waterlogg|deluge)", ql):
+            return ToolResult(self.spec.name, "unsupported",
+                              notes=["CDVQA has no flood questions; the measured change tools answer instead."])
         model, state, backbone, mean, std, metrics = _load()
         vocab = state["vocab"]
         if len([t for t in tokens(ctx.query) if t in vocab and "_" not in t]) < int(params.get("min_known_words", 3)):

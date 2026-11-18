@@ -337,6 +337,7 @@ docs/        DECISIONS.md (design decisions and rationale)
 - Algorithmic land-cover tools use fixed physical thresholds; they are robust on Sentinel-1/2 but
   approximate on 8-bit RGB benchmark images (flagged with lower confidence in the output).
 - Counting questions count land-cover *patches*, not objects; object-level counting relies on the VLM.
+- Flood questions are answered from the measured change: new open water with infrared or radar bands; on true-colour images (photos, screenshots) muddy flood water and deposits look like other grey ground, so those answers are marked as indications with low confidence. Pairs without capture dates are described as "the first image" and "the second image", and pairs that had to be resized to match get lower change confidence.
 - The VLM's change reading is auxiliary (BigEarthNet.txt has no bi-temporal pairs); change answers are
   driven by the change specialists.
 - The CDVQA mirror (`ljx620/CDVQA`) is unofficial; its test split matches the paper's test set 1 in size

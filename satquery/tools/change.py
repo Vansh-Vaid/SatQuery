@@ -29,7 +29,15 @@ def _pct(x: float) -> str:
 
 def _dates(ctx: ToolContext) -> tuple[str, str]:
     a, b = ctx.rasters
-    return (a.acquired.isoformat() if a.acquired else "date 1", b.acquired.isoformat() if b.acquired else "date 2")
+    if not a.acquired or not b.acquired or a.acquired == b.acquired:   # e.g. screenshots: no real capture dates
+        return "the first image", "the second image"
+    return a.acquired.isoformat(), b.acquired.isoformat()
+
+
+def _rgb_only(ctx: ToolContext) -> bool:
+    """True-colour images without infrared or radar bands (photos, screenshots, PNG/JPEG)."""
+    return all({str(b).upper() for b in r.bands} <= {"R", "G", "B", "A", "RED", "GREEN", "BLUE", "ALPHA"}
+               for r in ctx.rasters)
 
 
 # =================================================================== detector
@@ -174,6 +182,11 @@ class ChangeDetector(Tool):
         c_changed = float(np.mean(sig[keep])) if keep.any() else 1.0
         c_static = float(np.mean(1 - sig[valid & ~keep])) if (valid & ~keep).any() else 1.0
         conf = 0.5 * (c_changed + c_static) if keep.any() else c_static
+        if any(r.meta.get("resized_to_ref") for r in ctx.rasters):
+            # different pixel grids without georeferencing (e.g. two screenshots): pixels may not line up
+            conf *= 0.55
+            notes = notes + ["The two images had different sizes and were stretched to match, so some detected "
+                             "change may come from the images not lining up exactly."]
         d1, d2 = _dates(ctx)
         boxes = [Box(r["x0"], r["y0"], r["x1"], r["y1"], label=f"change {i + 1}", source=self.spec.name,
                      score=float(np.mean(sig[r["y0"]:r["y1"], r["x0"]:r["x1"]])))
@@ -287,6 +300,9 @@ _SMALLEST = re.compile(r"\b(smallest|least|minor)\b")
 _INTO = re.compile(r"\b(into what|to what|turn(ed|s)? (in)?to|convert(ed|s)? (in)?to|become|became|replaced)\b")
 _WHERE = re.compile(r"\b(where|location|located|which part)\b")
 _DESCRIBE = re.compile(r"\b(what (has )?changed|describe|summar|what happened|what are the changes|explain)\b")
+_FLOOD = re.compile(r"\b(flood\w*|inundat\w*|submerg\w*|waterlogg\w*|deluge)")
+_GREY_NOTE = ("In true-colour images, grey surfaces such as built-up land, bare ground and muddy flood water look "
+              "alike, so these class labels are approximate.")
 
 
 def ratio_bin(pct: float) -> str:
@@ -345,6 +361,9 @@ class ChangeQA(Tool):
             t = cand[0]
             return out(CLASS_LABELS[t["to"]], f"{CLASS_LABELS[c].capitalize()} mainly became {CLASS_LABELS[t['to']]} "
                                               f"({t['pct']:.1f}% of the scene, {t['where']}).", "transition", base_conf)
+
+        if mode != "describe" and _FLOOD.search(q):
+            return self._flood(ctx, pc, trans, base_conf, out)
 
         if mode == "describe" or (mode == "auto" and (_DESCRIBE.search(q) or _WHERE.search(q)) and not _YESNO.match(q)):
             return out("description", self._describe(ctx, df, sf), "describe", base_conf)
@@ -406,6 +425,33 @@ class ChangeQA(Tool):
         return out("description", self._describe(ctx, df, sf), "describe", base_conf * 0.9)
 
     @staticmethod
+    def _flood(ctx: ToolContext, pc: dict, trans: list, base_conf: float, out) -> ToolResult:
+        """Flooding = land that became water. With infrared or radar bands, water is measured directly (plus new
+        bare/wet ground for deposits). In true-colour images muddy flood water and deposits are grey-brown and
+        cannot be told apart from built-up or bare ground, so those gains count too and the answer says so."""
+        rgb = _rgb_only(ctx)
+        water = pc["water"]["gain_pct"]
+        ground = pc["bare_soil"]["gain_pct"] + (pc["built_up"]["gain_pct"] if rgb else 0.0)
+        targets = {"water", "bare_soil", "built_up"} if rgb else {"water"}
+        where = next((t["where"] for t in trans if t["to"] in targets and t["from"] != t["to"]), "")
+        where = f", {where}" if where else ""
+        if not rgb and water < 1.0:   # water is measured directly here: no new water, no flood
+            return out("no", f"No clear sign of flooding: open water grew by only {water:.1f}% of the scene "
+                             f"(net {pc['water']['net_pp']:+.1f} pp).", "flood", base_conf * 0.85)
+        total = water + ground
+        if rgb and total < 1.0:
+            return out("no", f"No clear sign of flooding: new water or wet ground covers only {total:.1f}% of the "
+                             f"scene in the second image.", "flood", base_conf * 0.6)
+        if rgb:
+            return out("yes", f"Likely yes: about {total:.1f}% of the scene turned from land into water or grey-brown "
+                              f"ground in the second image{where}, the pattern of muddy flood water or flood "
+                              f"deposits; clear open water alone covers {water:.1f}%. These are true-colour images "
+                              "without infrared bands, so muddy water, deposits and built-up surfaces cannot be fully "
+                              "separated: treat this as an indication, not a measurement.", "flood", base_conf * 0.6)
+        return out("yes", f"Yes: open water increased by {water:.1f}% of the scene{where}, plus {ground:.1f}% new "
+                          f"bare or wet ground (flood deposits).", "flood", base_conf * 0.9)
+
+    @staticmethod
     def _describe(ctx: ToolContext, df: dict, sf: dict) -> str:
         d1, d2 = df["dates"]
         if df["n_regions"] == 0:
@@ -427,4 +473,7 @@ class ChangeQA(Tool):
         if sf.get("change_without_class_transition_pct", 0) > 0.5 * df["changed_pct"]:
             parts.append("Much of the change is within a class (e.g. seasonal or illumination differences, crop "
                          "cycles or new structures of the same cover type).")
+        pc = sf["per_class"]
+        if _rgb_only(ctx) and pc["built_up"]["gain_pct"] + pc["bare_soil"]["gain_pct"] >= 1.0:
+            parts.append(_GREY_NOTE)
         return " ".join(parts)
