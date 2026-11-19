@@ -46,16 +46,19 @@ def metadata(xlsx: Path) -> list[dict]:
 
 
 def label_index(zpath: Path) -> dict[str, str]:
-    """dw_id -> member path of its label GeoTIFF (composites preferred in the validation set)."""
+    """dw_id -> member path of its label GeoTIFF (composites preferred in the validation set). The archives were
+    zipped on a Mac: every file has a '__MACOSX/._name.tif' resource-fork twin that is not an image, so skip those."""
     out = {}
     with zipfile.ZipFile(zpath) as z:
         for m in z.namelist():
-            if not m.lower().endswith((".tif", ".tiff")):
+            if not m.lower().endswith((".tif", ".tiff")) or "__MACOSX" in m or m.rsplit("/", 1)[-1].startswith("._"):
                 continue
             mid = re.search(r"(dw_[-0-9.]+_[-0-9.]+-\d{8})", m)
-            if mid and (mid.group(1) not in out or "composite" in m.lower()):
-                out[mid.group(1)] = m
-    return out
+            # preference: experts' consensus composite > other composite (strict) > a single expert's labels
+            rank = 2 if "consensus" in m.lower() else (1 if "composite" in m.lower() else 0)
+            if mid and (mid.group(1) not in out or rank > out[mid.group(1)][1]):
+                out[mid.group(1)] = (m, rank)
+    return {k: m for k, (m, _) in out.items()}
 
 
 def row_from_id(dw_id: str) -> dict | None:
