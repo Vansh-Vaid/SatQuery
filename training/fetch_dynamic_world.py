@@ -58,6 +58,16 @@ def label_index(zpath: Path) -> dict[str, str]:
     return out
 
 
+def row_from_id(dw_id: str) -> dict | None:
+    """Location and date from the tile id itself (dw_<lon>_<lat>-<YYYYMMDD>). The validation tiles are not in the
+    main metadata table, so this is how they are found."""
+    m = re.match(r"dw_(-?[0-9.]+)_(-?[0-9.]+)-(\d{4})(\d{2})(\d{2})", dw_id)
+    if not m:
+        return None
+    return {"dw_id": dw_id, "lon": float(m.group(1)), "lat": float(m.group(2)),
+            "date": f"{m.group(3)}-{m.group(4)}-{m.group(5)}", "S2_GRID": None, "Clouds": 0, "biome": None}
+
+
 def scene_on_grid(item, crs, transform, shape) -> np.ndarray:
     """The item's six bands warped onto the label grid, as reflectance (DN / 10000)."""
     import rasterio
@@ -110,7 +120,10 @@ def main() -> None:
     by_id = {r["dw_id"]: r for r in meta}
     for split, zpath in (("train", experts), ("test", valid)):
         index = label_index(zpath)
-        rows = [by_id[i] for i in index if i in by_id and float(by_id[i].get("Clouds") or 0) <= args.max_cloud]
+        rows = [by_id.get(i) or row_from_id(i) for i in index]
+        rows = [r for r in rows if r and float(r.get("Clouds") or 0) <= args.max_cloud]
+        print(f"{split}: {len(index)} label tiles in {zpath.name}, {sum(i in by_id for i in index)} in the metadata "
+              f"table, {len(rows)} usable", flush=True)
         if split == "train":   # stratify across biomes so every kind of landscape is represented
             biomes: dict = {}
             for r in rows:
@@ -132,7 +145,9 @@ def main() -> None:
         print(split, {k: kinds.count(k) for k in sorted(set(kinds))}, flush=True)
         for msg in sorted({r for r in results if r.startswith("error")})[:5]:   # show what went wrong
             print("  ", msg, flush=True)
-    sys.exit(0 if any((args.out / "train").glob("*.npz")) else "no training tiles were built")
+    for split in ("train", "test"):
+        if not any((args.out / split).glob("*.npz")):
+            sys.exit(f"no {split} tiles were built; see the errors above")
 
 
 if __name__ == "__main__":

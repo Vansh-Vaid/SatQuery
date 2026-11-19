@@ -48,12 +48,14 @@ def targets(y: np.ndarray) -> np.ndarray:
     return t
 
 
-def load(folder: Path, variant: str) -> list[tuple[np.ndarray, np.ndarray, Raster]]:
+def load(folder: Path, variant: str, keep_raster: bool = False) -> list[tuple[np.ndarray, np.ndarray, Raster | None]]:
+    """Model inputs kept as float16 (half the memory); the raster is only kept where the baseline needs it (test)."""
     out = []
     for f in sorted(folder.glob("*.npz")):
         d = np.load(f)
         r = raster_of(d["x"], variant)
-        out.append((model_input(r, variant), targets(d["y"]), r))
+        out.append((model_input(r, variant).astype(np.float16), targets(d["y"]), r if keep_raster else None))
+    print(f"[{variant}] {folder.name}: {len(out)} tiles", flush=True)
     return out
 
 
@@ -89,7 +91,8 @@ def main() -> None:
               "variants": {}}
     ckpt = {"arch": "seg_unet", "base": args.base, "variants": {}}
     for v in args.variants:
-        train, test = load(args.data / "train", v), load(args.data / "test", v)
+        train = test = None                              # free the previous variant's tiles first
+        train, test = load(args.data / "train", v), load(args.data / "test", v, keep_raster=True)
         if not train or not test:
             raise SystemExit(f"no tiles under {args.data}/train or /test")
         model = build_unet(IN_CH[v], args.base, K).to(dev)
@@ -106,12 +109,13 @@ def main() -> None:
             conf = np.zeros((K, K), np.int64)
             sq_m = sq_b = n = 0
             for x, t, r in rows:
-                p = predict_classes(cpu, x).argmax(0)
+                p = predict_classes(cpu, x.astype(np.float32)).argmax(0)
                 ok = t != IGNORE
-                conf += np.bincount(t[ok] * K + p[ok], minlength=K * K).reshape(K, K)
-                b = baseline_map(r)
+                conf += np.bincount(t[ok].astype(np.int64) * K + p[ok], minlength=K * K).reshape(K, K)
                 sq_m += int((COLLAPSE[p[ok]] == COLLAPSE[t[ok]]).sum())
-                sq_b += int((b[ok] == COLLAPSE[t[ok]]).sum())
+                if r is not None:                       # rule-based baseline needs the raster (test tiles only)
+                    b = baseline_map(r)
+                    sq_b += int((b[ok] == COLLAPSE[t[ok]]).sum())
                 n += int(ok.sum())
             model.to(dev).train()
             inter = np.diag(conf).astype(float)
