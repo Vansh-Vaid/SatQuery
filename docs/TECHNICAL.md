@@ -320,7 +320,7 @@ Plan and decisions: [GENERALIZATION_PLAN.md](GENERALIZATION_PLAN.md). Live now: 
 |---|---|---|
 | `change_mapper` + `events.py` | One U-Net maps each date into Dynamic World's 9 classes; any change question (flood, forest loss, fire scars, urban growth, drought, new cropland, snow loss, or one class) is read as a class change. No event has its own model. Trained on Dynamic World expert labels with Sentinel-2 from Planetary Computer (`training/fetch_dynamic_world.py`, `training/train_landcover.py`) | Beats the rule-based land cover on Dynamic World's held-out expert set |
 | Radar water model | Water under cloud for radar pairs (`training/train_flood.py --variants s1`, Sen1Floods11) | Beats Otsu on VV on the test split |
-| Small VLM | SmolVLM-256M + LoRA on VRSBench, served on the CPU for free-form questions (`training/prepare_vrsbench_vlm.py`, `eval/score_small_vlm.py`) | Beats the untrained model; under 15 s per answer on CPU |
+| Small VLM | SmolVLM-256M + LoRA on VRSBench, served on the CPU for free-form questions (`training/prepare_vrsbench_vlm.py`, `eval/score_small_vlm.py`) | Beats the untrained model; under 15 s per answer on CPU **Passed**: 53.7% vs 23.7% on 300 held-out open questions (every question type except direction and size improved), 3.2 s per answer on CPU |
 
 "Any place" tests, never used for training: Sen1Floods11 flood scenes (per country, India included, and Bolivia held out entirely) and nine Indian sites scored against ESA WorldCover (`python eval/real_pair_test.py --region india --landcover-ckpt checkpoints/landcover_seg.pt`). Notebooks: `kaggle/satquery_landcover_train.ipynb`, `kaggle/satquery_smolvlm_train.ipynb`.
 
