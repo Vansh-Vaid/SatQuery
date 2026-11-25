@@ -53,3 +53,34 @@ def test_trainer_runs_end_to_end_on_a_tiny_fake_dataset(tmp_path, monkeypatch):
     for v in m["variants"].values():
         assert 0 <= v["test_iou"] <= 1 and 0 <= v["baseline_iou"] <= 1 and v["n_test_chips"] == 2
         assert 0 <= v["bolivia_iou"] <= 1 and v["n_bolivia_chips"] == 1   # held-out country reported
+
+
+def test_group_scores_are_taken_in_eval_mode_and_agree_with_the_total():
+    """Per-country IoUs once ran in training mode (BatchNorm on one chip), which also spoiled the next split's score."""
+    import torch
+    sys.path.insert(0, str(ROOT / "training"))
+    import train_flood
+
+    from satquery.models.seg_net import build_unet, predict_water
+    torch.manual_seed(0)
+    model = build_unet(2, 4).train()
+    rng = np.random.default_rng(0)
+    rows = [(rng.random((2, 32, 32), np.float32), (rng.random((32, 32)) > 0.5).astype(np.int8)) for _ in range(4)]
+    ids = ["India_1", "India_2", "Spain_1", "Spain_2"]
+    before = {k: v.clone() for k, v in model.state_dict().items()}
+    total, groups = train_flood.water_scores(model, rows, ids)
+    assert all(torch.equal(v, before[k]) for k, v in model.state_dict().items())     # scoring changes no weights or statistics
+    assert model.training                                                            # and leaves the mode as it was
+    model.eval()
+    inter, union = (sum(c) for c in zip(*(train_flood.iou(predict_water(model, x) > 0.5, y) for x, y in rows)))
+    assert total == inter / max(union, 1) and set(groups) <= {"India", "Spain"}
+    assert min(groups.values()) <= total <= max(groups.values())
+
+
+def test_gate_compares_with_the_apps_own_map_and_needs_the_unseen_country_too():
+    sys.path.insert(0, str(ROOT / "training"))
+    import train_flood
+    assert train_flood.passes(0.66, 0.42, 0.70, 0.65)
+    assert not train_flood.passes(0.66, 0.42, 0.48, 0.65)   # better at home, worse in a country it never saw
+    assert not train_flood.passes(0.40, 0.42, 0.70, 0.65)
+    assert train_flood.passes(0.66, 0.42, None, None)       # no unseen-country chips available

@@ -58,7 +58,7 @@ def predict_classes(model, x: np.ndarray, max_side: int = 1024) -> np.ndarray:
     import torch.nn.functional as F
 
     c, h, w = x.shape
-    t = torch.from_numpy(x)[None]
+    t = torch.from_numpy(x)[None].to(next(model.parameters()).device)
     s = min(1.0, max_side / max(h, w))
     if s < 1:
         t = F.interpolate(t, scale_factor=s, mode="bilinear", align_corners=False)
@@ -68,7 +68,7 @@ def predict_classes(model, x: np.ndarray, max_side: int = 1024) -> np.ndarray:
         p = torch.softmax(model(t), 1)[:, :, :hh, :ww]
     if s < 1:
         p = F.interpolate(p, size=(h, w), mode="bilinear", align_corners=False)
-    return p[0].numpy()
+    return p[0].cpu().numpy()
 
 
 def _unet(in_ch: int, base: int, n_out: int):

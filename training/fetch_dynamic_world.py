@@ -17,6 +17,7 @@ import io
 import random
 import re
 import sys
+import time
 import urllib.request
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
@@ -33,7 +34,18 @@ def download(name: str, dest: Path) -> Path:
     path = dest / name
     if not path.exists():
         req = urllib.request.Request(PANGAEA + name, headers={"User-Agent": "SatQuery-trainer/1.0"})
-        path.write_bytes(urllib.request.urlopen(req, timeout=600).read())
+        part = path.with_name(name + ".part")     # renamed only when complete
+        for attempt in range(5):
+            try:
+                part.write_bytes(urllib.request.urlopen(req, timeout=600).read())
+                break
+            except Exception as e:
+                print(f"download of {name} failed ({type(e).__name__}: {e}), attempt {attempt + 1}/5", flush=True)
+                if attempt == 4:
+                    raise
+                time.sleep(15 * (attempt + 1))
+        part.replace(path)
+        print(f"downloaded {name}: {path.stat().st_size / 1e6:.0f} MB", flush=True)
     return path
 
 
@@ -99,7 +111,10 @@ def fetch_tile(row: dict, zpath: Path, member: str, out: Path, catalog) -> str:
     if not items:
         return "no scene"
     x = scene_on_grid(items[0], crs, transform, y.shape)
-    np.savez_compressed(dest, x=x.astype(np.float16), y=y)
+    part = dest.with_name(dest.name + ".part")
+    with part.open("wb") as fh:
+        np.savez_compressed(fh, x=x.astype(np.float16), y=y)
+    part.replace(dest)
     return "ok"
 
 
@@ -110,6 +125,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", type=Path, default=Path("data/dynamic_world"))
     ap.add_argument("--train-tiles", type=int, default=1500)
+    ap.add_argument("--test-tiles", type=int, default=0, help="limit the test split (0 = all; used by the self-test)")
     ap.add_argument("--max-cloud", type=float, default=0.05)
     ap.add_argument("--workers", type=int, default=8)
     args = ap.parse_args()
@@ -133,17 +149,26 @@ def main() -> None:
                 biomes.setdefault(r.get("biome"), []).append(r)
             per = max(1, args.train_tiles // max(len(biomes), 1))
             rows = [r for b in biomes.values() for r in rng.sample(b, min(per, len(b)))]
+        elif args.test_tiles:
+            rows = rng.sample(rows, min(args.test_tiles, len(rows)))
         out = args.out / split
         out.mkdir(parents=True, exist_ok=True)
 
         def job(r, zpath=zpath, index=index, out=out):
-            try:
-                return fetch_tile(r, zpath, index[r["dw_id"]], out, catalog)
-            except Exception as e:   # one bad scene must not stop the run
-                return f"error: {type(e).__name__}: {str(e)[:160]}"
+            for attempt in range(3):
+                try:
+                    return fetch_tile(r, zpath, index[r["dw_id"]], out, catalog)
+                except Exception as e:   # one bad scene must not stop the run; rate limits and timeouts are retried
+                    msg = f"error: {type(e).__name__}: {str(e)[:160]}"
+                    time.sleep(5 * (attempt + 1))
+            return msg
         print(f"{split}: {len(rows)} tiles selected", flush=True)
         with ThreadPoolExecutor(args.workers) as ex:
-            results = list(ex.map(job, rows))
+            results = []
+            for k, res in enumerate(ex.map(job, rows), 1):
+                results.append(res)
+                if k % 100 == 0:
+                    print(f"  {split}: {k}/{len(rows)}", flush=True)
         kinds = [r.split(":")[0] if r.startswith("error") else r for r in results]
         print(split, {k: kinds.count(k) for k in sorted(set(kinds))}, flush=True)
         for msg in sorted({r for r in results if r.startswith("error")})[:5]:   # show what went wrong

@@ -3,8 +3,8 @@
 Three variants of satquery.models.seg_net (radar "s1", multispectral "s2", true colour "rgb") are trained on the
 same 446 chips from 11 countries, selected on the official validation split and scored on the official test
 split with the dataset's usual metric (IoU of water over all labelled pixels). Each variant is also compared
-with the classic method SatQuery already has, on the same test pixels:
-  s1  - Otsu threshold on VV backscatter        s2 - MNDWI > 0        rgb - SatQuery's colour-based land cover
+with the water map SatQuery already makes for that input, on the same pixels, and passes only if it also wins in
+Bolivia, a country it never saw.
 Images are read with SatQuery's own loader and turned into model inputs by seg_net.model_input, so training and
 the app see identical numbers.
 
@@ -70,24 +70,34 @@ def inputs_for(variant: str, s1: Raster, s2: Raster) -> np.ndarray:
 
 
 def baseline(variant: str, s1: Raster, s2: Raster) -> np.ndarray:
-    """The classic water map SatQuery already produces for this input."""
-    from satquery.tools.landcover import classify, otsu
-    from satquery.tools.vocab import CLASSES
-    if variant == "s1":
-        vv = s1.band("VV") if s1.band("VV") is not None else s1.data[0]
-        fin = vv[np.isfinite(vv)]
-        thr = otsu(fin, -26.0, -8.0) if fin.size else None     # same window as SatQuery's landcover_sar
-        return np.nan_to_num(vv, nan=0.0) < (thr if thr is not None else -18.0)
-    if variant == "s2":
-        g, sw = s2.band("B03"), s2.band("B11")
-        return ((g - sw) / np.maximum(g + sw, 1e-6)) > 0
-    return classify(rgb_raster(s2)).label_map() == CLASSES.index("water")
+    """The water map SatQuery itself already produces for this input: what the model would replace."""
+    from satquery.tools.landcover import classify
+    return classify(s1 if variant == "s1" else (s2 if variant == "s2" else rgb_raster(s2))).masks["water"]
 
 
 def iou(pred: np.ndarray, y: np.ndarray) -> tuple[int, int]:
     m = y >= 0
     p, t = pred & m, (y == 1) & m
     return int((p & t).sum()), int((p | t).sum())
+
+
+def water_scores(model, rows, ids) -> tuple[float, dict[str, float]]:
+    """(IoU over all rows, IoU per country), in eval mode; the model's mode and device are left as they were."""
+    was_training, dev = model.training, next(model.parameters()).device
+    model.to("cpu").eval()
+    by: dict[str, list[int]] = {}
+    for cid, (x, y) in zip(ids, rows):
+        a, b = iou(predict_water(model, x) > 0.5, y)
+        c = by.setdefault(cid.split("_")[0], [0, 0])
+        c[0], c[1] = c[0] + a, c[1] + b
+    model.to(dev).train(was_training)
+    total = sum(i for i, _ in by.values()) / max(sum(u for _, u in by.values()), 1)
+    return total, {k: i / u for k, (i, u) in sorted(by.items()) if u}
+
+
+def passes(test: float, test_base: float, unseen: float | None, unseen_base: float | None) -> bool:
+    """The gate: better than SatQuery's own water map on the test split and, if present, in the unseen country."""
+    return test > test_base and (unseen is None or unseen > unseen_base)
 
 
 def augment(x, y, variant, rng):
@@ -141,15 +151,14 @@ def main() -> None:
         steps = args.epochs * max(1, math.ceil(len(data["train"]) / args.bs))
         sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=args.lr, total_steps=steps, pct_start=0.1)
 
+        ids = {split: [cid for cid, _ in chips[split]] for split in chips}
+
         def evaluate(split):
-            model.eval()
-            cpu_model = model.to("cpu")
-            inter = union = 0
-            for x, y in data[split]:
-                a, b = iou(predict_water(cpu_model, x) > 0.5, y)
-                inter, union = inter + a, union + b
-            model.to(dev).train()
-            return inter / max(union, 1)
+            return water_scores(model, data[split], ids[split])[0]
+
+        def baseline_iou(split):
+            pairs = [iou(baseline(v, s1, s2), y) for _, (s1, s2, y) in chips[split]]
+            return sum(i for i, _ in pairs) / max(sum(u for _, u in pairs), 1)
 
         best, best_state = -1.0, None
         for ep in range(args.epochs):
@@ -183,33 +192,17 @@ def main() -> None:
                 best, best_state = val, {k: t.detach().cpu().clone() for k, t in model.state_dict().items()}
             print(f"[{v}] epoch {ep + 1}/{args.epochs}: val IoU {val:.4f} ({time.time() - te:.0f}s)", flush=True)
         model.load_state_dict(best_state)
-        test = evaluate("test")
-        by_country: dict[str, list[int]] = {}       # test IoU per country (India included)
-        cpu_model = model.to("cpu")
-        for (cid, _), (x, y) in zip(chips["test"], data["test"]):
-            a, b = iou(predict_water(cpu_model, x) > 0.5, y)
-            c = by_country.setdefault(cid.split("_")[0], [0, 0])
-            c[0], c[1] = c[0] + a, c[1] + b
-        model.to(dev)
-        bi = bu = 0
-        for _, (s1, s2, y) in chips["test"]:
-            a, b = iou(baseline(v, s1, s2), y)
-            bi, bu = bi + a, bu + b
-        base_iou = bi / max(bu, 1)
-        held = {}
+        test, by_country = water_scores(model, data["test"], ids["test"])     # per country, India included
+        base_iou, unseen, unseen_base, held = baseline_iou("test"), None, None, {}
         if data["bolivia"]:
-            hi = hu = 0
-            for _, (s1, s2, y) in chips["bolivia"]:
-                a, b = iou(baseline(v, s1, s2), y)
-                hi, hu = hi + a, hu + b
-            held = {"bolivia_iou": round(evaluate("bolivia"), 4), "bolivia_baseline_iou": round(hi / max(hu, 1), 4),
+            unseen, unseen_base = evaluate("bolivia"), baseline_iou("bolivia")
+            held = {"bolivia_iou": round(unseen, 4), "bolivia_baseline_iou": round(unseen_base, 4),
                     "n_bolivia_chips": len(chips["bolivia"])}
-        held["test_iou_by_country"] = {k: round(i / u, 4) for k, (i, u) in sorted(by_country.items()) if u}
+        held["test_iou_by_country"] = {k: round(i, 4) for k, i in by_country.items()}
         result["variants"][v] = {**held, "test_iou": round(test, 4), "baseline_iou": round(base_iou, 4),
                                  "best_val_iou": round(best, 4), "n_test_chips": len(chips["test"]),
-                                 "baseline": {"s1": "Otsu threshold on VV", "s2": "MNDWI > 0",
-                                              "rgb": "SatQuery colour land cover"}[v],
-                                 "beats_baseline": bool(test > base_iou)}
+                                 "baseline": "SatQuery's own water map",
+                                 "beats_baseline": passes(test, base_iou, unseen, unseen_base)}
         ckpt["variants"][v] = {"state": best_state, "in_ch": IN_CH[v], "metrics": result["variants"][v]}
         print(f"[{v}] test IoU {test:.4f} vs baseline {base_iou:.4f}", flush=True)
     result["s2_bands"] = S2_BANDS

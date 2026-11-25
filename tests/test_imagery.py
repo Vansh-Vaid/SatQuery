@@ -127,3 +127,21 @@ def test_sentinel_file_with_b4_style_names_is_not_mistaken_for_landsat(tmp_path,
             dst.set_band_description(i + 1, n)
     r = load_image(tmp_path / "s2_scene.tif")
     assert r.meta.get("sensor") != "landsat" and r.modality is Modality.S2_MS
+
+
+def test_short_sentinel2_band_names(tmp_path):
+    """Earth Engine exports (and Sen1Floods11) name bands B2, B8, ...; tools ask for B02, B08, ..."""
+    import rasterio
+    from satquery.models.seg_net import model_input, variant_for
+
+    names = ["B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8", "B8A", "B9", "B10", "B11", "B12"]
+    path = tmp_path / "chip_S2Hand.tif"
+    arr = np.stack([np.full((16, 16), 1000 + 100 * i, np.int16) for i in range(13)])
+    with rasterio.open(path, "w", driver="GTiff", height=16, width=16, count=13, dtype="int16") as dst:
+        dst.write(arr)
+        dst.descriptions = tuple(names)
+    r = load_image(path, "s2")
+    assert r.has("B02", "B03", "B04", "B08", "B11", "B12")
+    assert r.bands[8] == "B8A"
+    assert variant_for(r) == "s2"
+    assert np.allclose(model_input(r, "s2")[:, 0, 0], [0.11, 0.12, 0.13, 0.17, 0.21, 0.22])

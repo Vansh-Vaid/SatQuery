@@ -121,3 +121,15 @@ def test_landcover_trainer_runs_end_to_end_on_fake_tiles(tmp_path, monkeypatch):
     for v in ("s2", "rgb"):
         r = m["variants"][v]
         assert 0 <= r["test_miou"] <= 1 and 0 <= r["baseline_acc_4class"] <= 1 and "beats_baseline" in r
+
+
+def test_landcover_gate_also_needs_better_flood_water_than_the_app():
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "training"))
+    from train_landcover import passes
+    assert passes(0.88, 0.66, {"test": (0.85, 0.83), "bolivia": (0.80, 0.79)})
+    assert not passes(0.88, 0.66, {"test": (0.60, 0.83), "bolivia": (0.80, 0.79)})   # the first full run, test split
+    assert not passes(0.88, 0.66, {"test": (0.85, 0.83), "bolivia": (0.63, 0.79)})
+    assert not passes(0.60, 0.66, {})
+    assert passes(0.88, 0.66, {})                                                    # flood scenes not given

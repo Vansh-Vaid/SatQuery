@@ -114,7 +114,10 @@ def _modality_from_stats(arr: np.ndarray) -> Modality:
 
 def _band_names(modality: Modality, count: int, descs: list[str]) -> list[str]:
     if descs and all(descs) and len(set(descs)) == count:
-        return [d.upper() for d in descs]
+        names = [d.strip().upper() for d in descs]
+        if modality.is_optical:   # Earth Engine exports and Sen1Floods11 write B2, B8; the tools ask for B02, B08
+            names = [f"B0{n[1]}" if re.fullmatch(r"B\d", n) else n for n in names]
+        return names
     if modality is Modality.SAR and count in SAR_LAYOUTS:
         return list(SAR_LAYOUTS[count])
     if modality is Modality.S2_MS and count in S2_LAYOUTS:

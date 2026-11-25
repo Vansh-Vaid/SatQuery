@@ -3,9 +3,9 @@
 One U-Net, nine Dynamic World classes, two input variants: "s2" (six multispectral bands; Sentinel-2 or Landsat)
 and "rgb" (true colour as the app renders it, for photos and screenshots). Scored on Dynamic World's held-out
 validation set (three experts per tile): pixel accuracy, mean IoU, per-class IoU. The gate: accuracy on SatQuery's
-four measured classes must beat SatQuery's rule-based land cover on the same pixels. Optionally (--sen1floods11)
-the model's water is also scored on Sen1Floods11 flood scenes, Bolivia included, as a test of events it was never
-trained for.
+four measured classes must beat SatQuery's rule-based land cover on the same pixels. With --sen1floods11 the model's
+water is also scored on Sen1Floods11 flood scenes, Bolivia included (events it was never trained for), and must
+beat SatQuery's own water map there too.
 
   python training/train_landcover.py --data data/dynamic_world --out checkpoints/landcover_seg.pt \
       [--sen1floods11 data/sen1floods11]
@@ -66,10 +66,15 @@ def baseline_map(r: Raster) -> np.ndarray:
     return np.array([SQ.index(c) for c in CLASSES])[np.clip(m, 0, None)]
 
 
+def passes(acc4: float, acc4_base: float, flood: dict[str, tuple[float, float]]) -> bool:
+    """The gate: better land cover than the rules, and better flood water than SatQuery's own map on every split."""
+    return acc4 > acc4_base and all(model > base for model, base in flood.values())
+
+
 def main() -> None:
     import torch
     import torch.nn.functional as F
-    from train_flood import augment, iou, load_chip, rgb_raster, split_ids
+    from train_flood import augment, baseline, iou, load_chip, rgb_raster, split_ids
 
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", type=Path, default=Path("data/dynamic_world"))
@@ -95,6 +100,9 @@ def main() -> None:
         train, test = load(args.data / "train", v), load(args.data / "test", v, keep_raster=True)
         if not train or not test:
             raise SystemExit(f"no tiles under {args.data}/train or /test")
+        order = rng.permutation(len(train))               # a real hold-out: these tiles pick the epoch, never train it
+        n_hold = max(1, len(train) // 10) if len(train) > 1 else 0
+        hold, train = [train[i] for i in order[:n_hold]] or train, [train[i] for i in order[n_hold:]]
         model = build_unet(IN_CH[v], args.base, K).to(dev)
         counts = np.bincount(np.concatenate([t[t != IGNORE] for _, t, _ in train]), minlength=K).astype(np.float64)
         weight = torch.tensor((counts.sum() / np.maximum(counts, 1)) ** 0.5, dtype=torch.float32)
@@ -105,11 +113,10 @@ def main() -> None:
 
         def evaluate(rows):
             model.eval()
-            cpu = model.to("cpu")
             conf = np.zeros((K, K), np.int64)
             sq_m = sq_b = n = 0
             for x, t, r in rows:
-                p = predict_classes(cpu, x.astype(np.float32)).argmax(0)
+                p = predict_classes(model, x.astype(np.float32)).argmax(0)
                 ok = t != IGNORE
                 conf += np.bincount(t[ok].astype(np.int64) * K + p[ok], minlength=K * K).reshape(K, K)
                 sq_m += int((COLLAPSE[p[ok]] == COLLAPSE[t[ok]]).sum())
@@ -117,7 +124,7 @@ def main() -> None:
                     b = baseline_map(r)
                     sq_b += int((b[ok] == COLLAPSE[t[ok]]).sum())
                 n += int(ok.sum())
-            model.to(dev).train()
+            model.train()
             inter = np.diag(conf).astype(float)
             union = conf.sum(0) + conf.sum(1) - inter
             ious = np.where(union > 0, inter / np.maximum(union, 1), np.nan)
@@ -126,7 +133,6 @@ def main() -> None:
                     "acc4": sq_m / max(n, 1), "baseline_acc4": sq_b / max(n, 1)}
 
         best, best_state = -1.0, None
-        hold = train[: max(1, len(train) // 10)]
         for ep in range(args.epochs):
             te = time.time()
             for k in range(0, len(train), args.bs):
@@ -149,43 +155,53 @@ def main() -> None:
             if score > best:
                 best, best_state = score, {k: t.detach().cpu().clone() for k, t in model.state_dict().items()}
             print(f"[{v}] epoch {ep + 1}/{args.epochs}: train-holdout mIoU {score:.4f} ({time.time() - te:.0f}s)", flush=True)
-        model.load_state_dict(best_state)
+        model.load_state_dict(best_state or model.state_dict())
+        best_state = best_state or {k: t.detach().cpu().clone() for k, t in model.state_dict().items()}
         m = evaluate(test)
         entry = {"variant": v, "test_pixel_acc": round(m["pixel_acc"], 4), "test_miou": round(m["miou"], 4),
                  "test_class_iou": m["class_iou"], "test_acc_4class": round(m["acc4"], 4),
                  "baseline_acc_4class": round(m["baseline_acc4"], 4), "n_test_tiles": len(test),
-                 "beats_baseline": bool(m["acc4"] > m["baseline_acc4"]),
+                 "beats_baseline": passes(m["acc4"], m["baseline_acc4"], {}),
                  "description": f"land-cover model trained on Dynamic World expert labels; test mIoU {m['miou']:.2f}"}
+        def save():                  # after every stage, so a later failure never loses a trained model
+            result["variants"][v] = entry
+            ckpt["variants"][v] = {"state": best_state, "in_ch": IN_CH[v], "n_out": K, "classes": DW_CLASSES, "metrics": entry}
+            result["minutes"] = round((time.time() - t0) / 60, 1)
+            args.out.parent.mkdir(parents=True, exist_ok=True)
+            torch.save(ckpt, args.out)
+            Path(str(args.out) + ".metrics.json").write_text(json.dumps(result, indent=2))
+        save()
+        model.eval()
         if args.sen1floods11:        # floods were never a training target: score the model's water on flood scenes
             files = {p.name: p for p in args.sen1floods11.rglob("*.tif")}
             water = [DW_CLASSES.index("water"), DW_CLASSES.index("flooded_vegetation")]
+            flood: dict[str, tuple[float, float]] = {}
             for split in ("test", "bolivia"):
-                inter = union = 0
+                inter = union = base_i = base_u = 0
                 by_country: dict[str, list[int]] = {}
                 for cid in split_ids(args.sen1floods11, split, required=False):
                     chip = load_chip(files, cid)
                     if chip is None:
                         continue
-                    _, s2, y = chip
+                    s1, s2, y = chip
                     r = s2 if v == "s2" else rgb_raster(s2)
-                    p = np.isin(predict_classes(model.cpu(), model_input(r, v)).argmax(0), water)
+                    p = np.isin(predict_classes(model, model_input(r, v)).argmax(0), water)
                     a, b = iou(p, y)
                     inter, union = inter + a, union + b
+                    ba, bb = iou(baseline(v, s1, s2), y)
+                    base_i, base_u = base_i + ba, base_u + bb
                     c = by_country.setdefault(cid.split("_")[0], [0, 0])
                     c[0], c[1] = c[0] + a, c[1] + b
                 if union:
+                    flood[split] = (inter / union, base_i / max(base_u, 1))
                     entry[f"sen1floods11_{split}_water_iou"] = round(inter / union, 4)
+                    entry[f"sen1floods11_{split}_baseline_water_iou"] = round(flood[split][1], 4)
                     if split == "test":   # per country, India included: "any place" for floods
                         entry["sen1floods11_test_water_iou_by_country"] = {
                             k: round(i / u, 4) for k, (i, u) in sorted(by_country.items()) if u}
-            model.to(dev)
-        result["variants"][v] = entry
-        ckpt["variants"][v] = {"state": best_state, "in_ch": IN_CH[v], "n_out": K, "classes": DW_CLASSES, "metrics": entry}
+            entry["beats_baseline"] = passes(m["acc4"], m["baseline_acc4"], flood)
+        save()
         print(json.dumps(entry, indent=2), flush=True)
-    result["minutes"] = round((time.time() - t0) / 60, 1)
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(ckpt, args.out)
-    Path(str(args.out) + ".metrics.json").write_text(json.dumps(result, indent=2))
 
 
 if __name__ == "__main__":
