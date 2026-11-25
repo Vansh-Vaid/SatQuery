@@ -265,6 +265,13 @@ A model per disaster (floods, fires, deforestation...) would repeat the "one too
 *Gate:* the model is used only where it beats the rule-based land cover on held-out labels; until then the measured change tools answer, unchanged.
 *Also:* Landsat 8/9 bands are mapped onto Sentinel-2 roles so every optical tool works on 40 years of archive; screenshots of different sizes are aligned on landmarks instead of stretched, and the frontend redesign that removed the 3D globe was reverted at the owner's request.
 
+### D21. The trained change model, radar model and small VLM stay off
+All three beat the baseline they were first compared with, and none is enabled. A gate must compare with what the app does today, not with an untrained or classic baseline, and must include places the model never saw.
+*Land cover / change:* 0.876 vs 0.662 on four classes, but 0.597 vs 0.829 flood water IoU against the app's own map, and a median 5.2% false change (app: 0.0%) on 13 pairs taken 3 to 15 days apart. Comparing two imperfect maps turns their errors into change.
+*Radar water:* better on the test split (0.656 vs 0.422), worse in Bolivia (0.482 vs 0.652), the country it never saw.
+*SmolVLM:* 52.5% vs 52.5% on 40 shared VRSBench questions, 1.9 GB peak on a 2 GB container.
+*Rejected:* lowering the gate, raising the change threshold until the pairs pass (tuning on the test), a larger container (costs money).
+
 ### D9. Synthetic Sentinel-1/2 scenes with known ground truth for tests and demos
 They let tests assert correctness (fractions, change IoU, directions), not just "it runs", and make the
 demo work offline. Real-data accuracy is measured by `eval/` on the named benchmarks.

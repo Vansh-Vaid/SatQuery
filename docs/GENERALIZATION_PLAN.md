@@ -28,7 +28,7 @@ Decisions taken during execution (owner's veto welcome):
   (reflectance = 0.0000275 x DN - 0.2).
 - Flood and burned-area specialists share one small segmentation design (a light U-Net on 256 x 256 tiles,
   fast on one CPU core), so a third task later is a dataset and a notebook, not new code.
-- SmolVLM-256M is the first candidate (it fits the 2 GB server next to the other models); 500M only if the
+- SmolVLM-256M is the first candidate (expected to fit the 2 GB server; measured later at 1.9 GB peak on its own, so it does not); 500M only if the
   server memory allows it.
 - Data downloads and training run in Kaggle notebooks: the development network blocks Python HTTPS.
 
@@ -54,10 +54,10 @@ written), then D, F, G.
 | A. Landsat 8/9 | **Done** (`b59147a`): stacked or named Collection-2 files load with Sentinel-2 band roles; land cover matches the Sentinel-2 version of the same scene on > 90% of pixels; 3 tests |
 | B. Screenshot pairs | **Done** (on `main`): landmark alignment, cloud/label masking, flood wording, river-bed shape check |
 | C. General land-cover change model | **Code done**: `seg_net` (9 classes), `events.py`, `change_mapper` (replaces the flood tool; used for every change question once trained; gate: beats the rule-based land cover on Dynamic World's held-out experts), `fetch_dynamic_world.py`, `train_landcover.py` (smoke-tested), radar water model. **Trained 2026-11-25; gate failed, not live**: worse flood water than the app's own map and false change on unchanged pairs; radar model worse in an unseen country (numbers in `TECHNICAL.md`) |
-| E. Free-form VLM | **Gate passed** (Kaggle, 19 Nov 2026): SmolVLM-256M + LoRA (rank 16, 1,374 steps on 12,000 VRSBench rows) scores 53.7% on 300 held-out VRSBench open questions vs 23.7% untrained; captions BLEU-4 0.110 vs 0.043, ROUGE-L 0.323 vs 0.202; 3.2 s per answer on CPU. Adapter: `checkpoints/smolvlm-rs-lora`; scores: `eval/results/smolvlm_{base,lora}.json` |
+| E. Free-form VLM | **Gate passed** (Kaggle, 19 Nov 2026): SmolVLM-256M + LoRA (rank 16, 1,374 steps on 12,000 VRSBench rows) scores 53.7% on 300 held-out VRSBench open questions vs 23.7% untrained; captions BLEU-4 0.110 vs 0.043, ROUGE-L 0.323 vs 0.202; 3.2 s per answer on CPU. Adapter: `checkpoints/smolvlm-rs-lora`; scores: `eval/results/smolvlm_{base,lora}.json`. **Not enabled**: ties with the app on 40 shared questions and does not fit the server |
 | D. Burned areas | Dropped (Q14) |
-| F. India test set | **Code done**: nine Indian sites in `eval/real_pair_test.py --region india` (with trained-model scoring), per-country flood IoU; runs inside the land-cover notebook |
-| G. Docs and merge | After the Kaggle verdicts |
+| F. India test set | **Run 2026-11-25** (fusion 76.3%, land-cover model 74.8%): nine Indian sites in `eval/real_pair_test.py --region india` (with trained-model scoring), per-country flood IoU; runs inside the land-cover notebook |
+| G. Docs and merge | **Done** |
 
 Dataset paths for Sen1Floods11 were checked against the public bucket listing (splits include a Bolivia-only
 held-out file, used as the "never seen" test).
