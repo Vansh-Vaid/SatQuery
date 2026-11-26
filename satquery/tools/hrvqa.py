@@ -47,7 +47,7 @@ def _load():
             if state.get("arch") == "dense":      # 14x14 maps + attention (training/train_vrsbench_vqa_dense.py)
                 from satquery.models.hr_ground_net import DenseVQA, load_dense_encoder
                 model = DenseVQA(len(state["vocab"]), len(state["answers"]))
-                body = load_dense_encoder()
+                body = load_dense_encoder(state.get("encoder", "resnet18"))
             else:                                 # 3x3 grid (training/train_vrsbench_vqa.py)
                 model = build_model(len(state["vocab"]), img_dim=state["img_dim"], n_answers=len(state["answers"]),
                                     hidden=state.get("hidden", 512))
@@ -94,6 +94,10 @@ class HighResVQA(Tool):
     def available(self) -> tuple[bool, str]:
         if not _path(settings.vrsbench_checkpoint).exists():
             return False, "checkpoint not found (vrsbench_vqa.pt); run training/train_vrsbench_vqa.py"
+        from satquery.models.hr_ground_net import missing_encoder
+        why = missing_encoder(_path(settings.vrsbench_checkpoint))
+        if why:
+            return False, why
         return True, "trained on VRSBench"
 
     def run(self, ctx: ToolContext, params: dict[str, Any]) -> ToolResult:

@@ -265,6 +265,13 @@ A model per disaster (floods, fires, deforestation...) would repeat the "one too
 *Gate:* the model is used only where it beats the rule-based land cover on held-out labels; until then the measured change tools answer, unchanged.
 *Also:* Landsat 8/9 bands are mapped onto Sentinel-2 roles so every optical tool works on 40 years of archive; screenshots of different sizes are aligned on landmarks instead of stretched, and the frontend redesign that removed the 3D globe was reverted at the owner's request.
 
+### D22. DINOv2-small replaces ResNet-18 as the high-resolution encoder
+The object finder and the question answerer (D19) read images through a frozen ImageNet ResNet-18. A frozen DINOv2 ViT-S/14 with registers (Apache-2.0, 22M parameters) gives a map of the same shape (392 px, blocks 9 and 12 pooled to 14x14x768, PCA to 256), so the heads and training recipe are unchanged; the checkpoint names its encoder and older checkpoints keep ResNet-18.
+*Pilot first:* on 3,000 training and 1,000 test images, with the same heads and seeds, grounding went from 18.5% to 32.6% (z 12.7) and VQA from 45.2% to 48.3% (z 5.9), past a bar fixed before the run (z >= 2 and +2 points).
+*Full run* (free Kaggle T4, 31 min of training): grounding **38.5% -> 55.2%** Acc@0.5 on all 16,159 expressions; VQA 56.0% -> 57.7% on all 37,409 questions (category +4.4, quantity +3.8, scene type +2.3; size -0.9). VQA missed the notebook's +2-point mark, but it is shipped because the encoder is loaded for the grounder anyway, and the full agent improves: 600 VQA questions 59.8% -> 62.5% (ECE 0.060 -> 0.054), 250 expressions 36.8% -> 56.4%; where-questions from the box 39.3% -> 47.0%.
+*Cost:* the encoder file is 42 MB (half precision); whole-app peak memory 666 -> 731 MB on the 2 GB container, and answers were no slower on one thread.
+*Rejected:* averaging the old and new ResNet VQA models (+0.6 points outside position questions, not significant); fine-tuning the encoder (needs more GPU time than the viva allows).
+
 ### D21. The trained change model, radar model and small VLM stay off
 All three beat the baseline they were first compared with, and none is enabled. A gate must compare with what the app does today, not with an untrained or classic baseline, and must include places the model never saw.
 *Land cover / change:* 0.876 vs 0.662 on four classes, but 0.597 vs 0.829 flood water IoU against the app's own map, and a median 5.2% false change (app: 0.0%) on 13 pairs taken 3 to 15 days apart. Comparing two imperfect maps turns their errors into change.

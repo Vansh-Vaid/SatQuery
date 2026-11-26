@@ -1,6 +1,7 @@
 """Dense referring-expression grounder for high-resolution aerial images (shared by training and the tool).
 
-Image: frozen ImageNet ResNet-18 at 448x448. layer3 (28x28x256, average-pooled to 14x14) and layer4
+Image: frozen encoder named in the checkpoint: DINOv2 ViT-S ("dinov2_s", satquery/models/dino.py) or, by default,
+ImageNet ResNet-18 at 448x448. layer3 (28x28x256, average-pooled to 14x14) and layer4
 (14x14x512) are stacked into a 14x14x768 map and projected to PROJ_DIM channels with a fixed PCA fitted on
 training images, so the cached maps fit in memory on a laptop.
 Expression: bag of unigrams/bigrams (`rsvqa_features.tokens`) through an EmbeddingBag.
@@ -14,12 +15,15 @@ from __future__ import annotations
 
 import functools
 import re
+from pathlib import Path
 
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from satquery.config import settings
+from satquery.models import dino
 from satquery.models.hr_features import MEAN, STD
 from satquery.models.rsvqa_features import tokens
 
@@ -38,9 +42,29 @@ _V_SWAP = {"top": "bottom", "bottom": "top", "upper": "lower", "lower": "upper",
 
 
 # ---- image side --------------------------------------------------------------------------------------------
-@functools.lru_cache(maxsize=1)
-def load_dense_encoder() -> tuple[nn.Module, nn.Module]:
-    """Frozen ImageNet ResNet-18 split at layer3 / layer4; one shared copy per process (inference only)."""
+def dino_path() -> Path:
+    p = Path(settings.dino_checkpoint)
+    return p if p.is_absolute() else Path(__file__).resolve().parents[2] / p
+
+
+@functools.lru_cache(maxsize=8)
+def _encoder_name(path: str, mtime: float) -> str:
+    return torch.load(path, map_location="cpu", weights_only=False).get("encoder", "resnet18")
+
+
+def missing_encoder(checkpoint: Path) -> str | None:
+    """Why a dense checkpoint cannot run (its encoder's weights are not there), or None."""
+    if _encoder_name(str(checkpoint), checkpoint.stat().st_mtime) == "dinov2_s" and not dino_path().exists():
+        return f"encoder weights not found ({dino_path().name})"
+    return None
+
+
+@functools.lru_cache(maxsize=2)
+def load_dense_encoder(name: str = "resnet18"):
+    """The frozen encoder a checkpoint names; one shared copy per process (inference only). "resnet18" is a tuple:
+    ImageNet ResNet-18 split at layer3 / layer4."""
+    if name == "dinov2_s":
+        return dino.load_dino(dino_path())
     from torchvision import models
 
     m = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1).eval()
@@ -48,15 +72,19 @@ def load_dense_encoder() -> tuple[nn.Module, nn.Module]:
     return to_l3, m.layer4.eval()
 
 
-def encode_dense(enc: tuple[nn.Module, nn.Module], rgbs: list[np.ndarray]) -> np.ndarray:
+def encode_dense(enc, rgbs: list[np.ndarray]) -> np.ndarray:
     """HxWx3 uint8 arrays -> (N, RAW_DIM, GRID, GRID) float32 raw feature maps."""
     from PIL import Image
 
-    x = np.stack([np.asarray(Image.fromarray(a).convert("RGB").resize((INPUT, INPUT), Image.BILINEAR), np.float32)
+    vit = isinstance(enc, dino.DinoV2S)
+    side = dino.INPUT if vit else INPUT
+    x = np.stack([np.asarray(Image.fromarray(a).convert("RGB").resize((side, side), Image.BILINEAR), np.float32)
                   / 255.0 for a in rgbs])
-    dev = next(enc[0].parameters()).device          # CPU in the app; GPU when a trainer moved the encoder
+    dev = next((enc if vit else enc[0]).parameters()).device          # CPU in the app; GPU when a trainer moved the encoder
     x = torch.from_numpy((x - MEAN) / STD).permute(0, 3, 1, 2).to(dev)
     with torch.inference_mode():
+        if vit:
+            return enc(x).float().cpu().numpy()
         f3 = enc[0](x)
         f4 = enc[1](f3)
         return torch.cat([F.avg_pool2d(f3, 2), f4], 1).float().cpu().numpy()

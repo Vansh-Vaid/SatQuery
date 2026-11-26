@@ -51,7 +51,7 @@ def _load():
                 model = DenseGrounder(len(state["vocab"]))
                 model.load_state_dict(state["model"])
                 model.eval()
-                _cache[key] = (model, state, load_dense_encoder(), state.get("metrics", {}))
+                _cache[key] = (model, state, load_dense_encoder(state.get("encoder", "resnet18")), state.get("metrics", {}))
                 return _cache[key]
             nv, d = len(state["vocab"]), state["img_dim"]
 
@@ -109,6 +109,10 @@ class HighResGrounder(Tool):
     def available(self) -> tuple[bool, str]:
         if not _path(settings.vrsbench_ground_checkpoint).exists():
             return False, "checkpoint not found (vrsbench_ground.pt); run training/train_vrsbench_grounding.py"
+        from satquery.models.hr_ground_net import missing_encoder
+        why = missing_encoder(_path(settings.vrsbench_ground_checkpoint))
+        if why:
+            return False, why
         return True, "trained on VRSBench referring expressions"
 
     def run(self, ctx: ToolContext, params: dict[str, Any]) -> ToolResult:

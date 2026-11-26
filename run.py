@@ -2,7 +2,7 @@
 
     python run.py                 start the app and open it in your browser
     python run.py --setup-models  download the training data and train the three AI models (~45 min, CPU is fine)
-    python run.py --setup-highres optional: models for sharp aerial photos (VRSBench, ~30 MB download)
+    python run.py --setup-highres optional: models for sharp aerial photos (VRSBench, ~75 MB download)
     python run.py --test          run the automated tests
     python run.py --port 8080     use a different port
 """
@@ -117,10 +117,11 @@ def setup_models() -> int:
 
 def setup_highres() -> int:
     """Install the trained high-resolution models (VRSBench question answering and object boxes) that the live
-    app uses, from the project's public GitHub release (~30 MB). To train them yourself instead, see
-    kaggle/satquery_hr_train.ipynb (free GPU, ~45 min) or docs/TECHNICAL.md (CPU, several hours)."""
+    app uses, and the DINOv2 encoder they read images with, from the project's public GitHub release (~75 MB).
+    To train them yourself instead, see kaggle/satquery_hr_dino_train.ipynb (free GPU, ~45 min) or docs/TECHNICAL.md (CPU, several hours)."""
     print("\nHigh-resolution models (sharp aerial photos: planes, ships, vehicles, sports fields ...)")
-    for f in ("vrsbench_vqa.pt", "vrsbench_vqa.pt.metrics.json", "vrsbench_ground.pt", "vrsbench_ground.pt.metrics.json"):
+    for f in ("dinov2_vits14.pt", "vrsbench_vqa.pt", "vrsbench_vqa.pt.metrics.json", "vrsbench_ground.pt",
+              "vrsbench_ground.pt.metrics.json"):
         download(MODELS_RELEASE + f, ROOT / "checkpoints" / f)
     print("\nDone. Start the app with:   python run.py")
     return 0
@@ -155,7 +156,7 @@ def main() -> int:
     """Parse command line arguments and execute requested launcher action."""
     ap = argparse.ArgumentParser(description="SatQuery AI launcher")
     ap.add_argument("--setup-models", action="store_true", help="download data and train the AI models")
-    ap.add_argument("--setup-highres", action="store_true", help="optional: high-resolution aerial models (VRSBench, ~30 MB download)")
+    ap.add_argument("--setup-highres", action="store_true", help="optional: high-resolution aerial models (VRSBench, ~75 MB download)")
     ap.add_argument("--test", action="store_true", help="run the automated tests")
     ap.add_argument("--port", type=int, default=8000)
     ap.add_argument("--no-browser", action="store_true", help="do not open a browser window")

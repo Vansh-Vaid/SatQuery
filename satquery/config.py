@@ -44,6 +44,8 @@ class Settings:
 
     vrsbench_ground_checkpoint: str = field(default_factory=lambda: os.getenv("SATQUERY_VRSBENCH_GROUND_CKPT", "checkpoints/vrsbench_ground.pt"))
     vrsbench_checkpoint: str = field(default_factory=lambda: os.getenv("SATQUERY_VRSBENCH_CKPT", "checkpoints/vrsbench_vqa.pt"))
+    # DINOv2 weights, needed only by high-resolution checkpoints trained with that encoder
+    dino_checkpoint: str = field(default_factory=lambda: os.getenv("SATQUERY_DINO_CKPT", "checkpoints/dinov2_vits14.pt"))
     cdvqa_checkpoint: str = field(default_factory=lambda: os.getenv("SATQUERY_CDVQA_CKPT", "checkpoints/cdvqa.pt"))
     rsvqa_checkpoint: str = field(default_factory=lambda: os.getenv("SATQUERY_RSVQA_CKPT", "checkpoints/rsvqa_lr.pt"))
     flood_checkpoint: str = field(default_factory=lambda: os.getenv("SATQUERY_FLOOD_CKPT", "checkpoints/flood_seg.pt"))

@@ -181,3 +181,52 @@ def test_grid_label_uses_the_dataset_place_words():
     from satquery.tools.hrvqa import grid_label
     assert grid_label(0.1, 0.1) == "top-left" and grid_label(0.5, 0.5) == "center"
     assert grid_label(0.9, 0.5) == "middle-right" and grid_label(0.5, 0.9) == "bottom-middle"
+
+
+# ---- DINOv2 encoder (checkpoints that name it; the others keep ResNet-18) ------------------------------------
+def _dino_grounder(tmp_path, monkeypatch, weights=True):
+    import numpy as np
+    import torch
+
+    from satquery.config import settings
+    from satquery.models import dino, hr_ground_net
+    from satquery.models.hr_ground_net import PROJ_DIM, RAW_DIM, DenseGrounder
+    from satquery.tools import hrground
+
+    torch.manual_seed(0)
+    enc = tmp_path / "dinov2.pt"
+    if weights:
+        torch.save({k: v.half() for k, v in dino.DinoV2S().state_dict().items()}, enc)
+    vocab = {w: i for i, w in enumerate(["large", "vehicle", "the"])}
+    comp = np.linalg.qr(np.random.default_rng(0).normal(size=(RAW_DIM, PROJ_DIM)))[0].astype(np.float32)
+    ckpt = tmp_path / "ground.pt"
+    torch.save({"arch": "dense", "encoder": "dinov2_s", "model": DenseGrounder(len(vocab)).state_dict(), "vocab": vocab,
+                "pca_mean": np.zeros(RAW_DIM, np.float32), "pca_comp": comp, "pca_scale": np.ones(PROJ_DIM, np.float32),
+                "metrics": {"confidence_table": [{"p_max": 1.0, "acc": 0.4}]}}, ckpt)
+    new = dataclasses.replace(settings, vrsbench_ground_checkpoint=str(ckpt), dino_checkpoint=str(enc))
+    monkeypatch.setattr(hrground, "settings", new)
+    monkeypatch.setattr(hr_ground_net, "settings", new)
+    hr_ground_net.load_dense_encoder.cache_clear()
+    return HighResGrounder()
+
+
+def test_dino_encoder_gives_the_same_map_shape_as_resnet(tmp_path):
+    import numpy as np
+    import torch
+
+    from satquery.models.dino import DinoV2S
+    from satquery.models.hr_ground_net import GRID, RAW_DIM, encode_dense
+    torch.manual_seed(0)
+    f = encode_dense(DinoV2S().eval(), [np.zeros((300, 500, 3), np.uint8), np.full((64, 64, 3), 200, np.uint8)])
+    assert f.shape == (2, RAW_DIM, GRID, GRID) and f.dtype == np.float32 and np.isfinite(f).all()
+
+
+def test_dino_checkpoint_runs_and_is_unavailable_without_its_encoder_weights(aerial, tmp_path, monkeypatch):
+    rep = validate_inputs([aerial])
+    tool = _dino_grounder(tmp_path, monkeypatch)
+    assert tool.available()[0]
+    res = tool.run(ToolContext("Locate the large vehicle", rep.config, rep.rasters), tool.defaults())
+    assert res.ok and len(res.boxes) == 1 and res.confidence == 0.4
+    (tmp_path / "dinov2.pt").unlink()
+    ok, why = tool.available()
+    assert not ok and "dinov2" in why

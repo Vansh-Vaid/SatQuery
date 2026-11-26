@@ -49,6 +49,8 @@ def main() -> None:
     ap.add_argument("--cache", type=Path, default=None, help="dense feature folder (default: <root>/features)")
     ap.add_argument("--out", type=Path, default=Path("checkpoints/vrsbench_vqa_dense.pt"))
     ap.add_argument("--answers", type=int, default=300)
+    ap.add_argument("--encoder", choices=("resnet18", "dinov2_s"), default="resnet18",
+                    help="the encoder that made the maps in --cache")
     ap.add_argument("--epochs", type=int, default=10)
     ap.add_argument("--bs", type=int, default=256)
     ap.add_argument("--lr", type=float, default=1e-3)
@@ -153,12 +155,12 @@ def main() -> None:
     model.load_state_dict(best_state)
     acc, per = evaluate("test")
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    torch.save({"arch": "dense", "model": best_state, "vocab": vocab, "answers": answers,
+    torch.save({"arch": "dense", "encoder": args.encoder, "model": best_state, "vocab": vocab, "answers": answers,
                 "pca_mean": pca["mean"], "pca_comp": pca["comp"], "pca_scale": pca["scale"]}, args.out)
     metrics = {"dataset": "VRSBench VQA eval set (exact match after normalisation)", "test_accuracy": round(acc, 4),
                "test_per_type": {k: round(v, 4) for k, v in per.items()}, "n_test": len(test),
                "best_val_accuracy": round(best, 4), "answer_vocabulary": len(answers),
-               "model": "DenseVQA: 14x14 ResNet-18 maps (PCA 256) + FiLM + attention pooling",
+               "model": f"DenseVQA: 14x14 {args.encoder} maps (PCA 256) + FiLM + attention pooling",
                "minutes": round((time.time() - t0) / 60, 1)}
     Path(str(args.out) + ".metrics.json").write_text(json.dumps(metrics, indent=2))
     print(json.dumps(metrics, indent=2))

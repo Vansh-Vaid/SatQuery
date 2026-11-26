@@ -114,7 +114,7 @@ its own once you upload it, switch on **GPU** and **Internet** in the notebook s
 
 | Notebook | What it trains | Time |
 |---|---|---|
-| [`kaggle/satquery_hr_train.ipynb`](kaggle/satquery_hr_train.ipynb) | The two high-resolution models (object finder and question answerer) | about 45 minutes |
+| [`kaggle/satquery_hr_dino_train.ipynb`](kaggle/satquery_hr_dino_train.ipynb) | The two high-resolution models (object finder and question answerer) | about 45 minutes |
 | [`kaggle/satquery_vlm.ipynb`](kaggle/satquery_vlm.ipynb) | The large vision-language model (free-form answers, captions, optical + radar together) | up to 12 hours |
 | [`kaggle/satquery_bench_data.ipynb`](kaggle/satquery_bench_data.ipynb) + [`satquery_vlm_score.ipynb`](kaggle/satquery_vlm_score.ipynb) | Re-scores a trained vision-language model without retraining it | 1-2 GPU hours |
 
@@ -189,10 +189,10 @@ Everything below was measured on test data the models never saw during training.
 | – "Did X change / increase / decrease?" | 69–79% |
 | – "What did X change into?" | 55.0% |
 | – "What percentage changed?" (in 10% ranges) | 32.0% |
-| Answering questions about **sharp aerial photos** (objects such as planes, ships, vehicles; VRSBench, 37,409 questions) | **56.0%** correct |
+| Answering questions about **sharp aerial photos** (objects such as planes, ships, vehicles; VRSBench, 37,409 questions) | **57.7%** correct |
 | – "Is there a ...?" | 88.0% |
-| – "Where is the ...?" (top-left, bottom-right, ...), answered from the object's box | 39.3% |
-| Drawing a box around a described object in a sharp aerial photo (VRSBench, 16,159 descriptions) | **38.5%** correct |
+| – "Where is the ...?" (top-left, bottom-right, ...), answered from the object's box | 47.0% |
+| Drawing a box around a described object in a sharp aerial photo (VRSBench, 16,159 descriptions) | **55.2%** correct |
 | Mapping water, vegetation and built-up land on **real optical + radar pairs** (6 cities, about 2 million pixels, checked against the ESA WorldCover map) | **80%** of pixels correct with both images (optical alone 61%, radar alone 74%) |
 | – under monsoon clouds (Dhaka) | 78% with both images (optical alone 35%) |
 
@@ -211,8 +211,8 @@ Being honest about the limits:
   included; see Get started).
 - **Captions** are short sentences built from the models' own answers about the image (setting, main
   object, how many, where) plus the measured land cover. They are not written freely.
-- **Object boxes** in sharp aerial photos are right about 2 times in 5 (38.5%). Large objects are found
-  reliably (tennis courts 79%, airplanes 64%); small ones much less often (ships 26%, vehicles 14%). Each
+- **Object boxes** in sharp aerial photos are right a little over half the time (55.2%). Large objects are
+  found reliably (tennis courts 88%, airplanes 77%); small ones less often (ships 46%, vehicles 33%). Each
   box comes with a confidence measured on the benchmark, so weak boxes are labelled as such.
 - **Change questions** are right about two times in three on real image pairs (65%, see above). The
   hardest are "what percentage changed?" and "what is the smallest change?".

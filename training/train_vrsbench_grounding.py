@@ -143,6 +143,9 @@ def main() -> None:
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--min-count", type=int, default=3, help="keep expression tokens seen at least this often")
     ap.add_argument("--features-only", action="store_true")
+    ap.add_argument("--encoder", choices=("resnet18", "dinov2_s"), default="resnet18",
+                    help="frozen image encoder; use a separate --cache folder for each")
+    ap.add_argument("--limit", type=int, default=0, help="use only this many images per split (self-test)")
     ap.add_argument("--encode-bs", type=int, default=8,
                     help="images per encoder batch (memory peak grows with it; resumable at any value)")
     args = ap.parse_args()
@@ -156,12 +159,17 @@ def main() -> None:
     train, test = load_refs(args.root)
     tr_names = sorted({r["img"] for r in train})
     te_names = sorted({r["img"] for r in test})
+    if args.limit:
+        tr_names, te_names = tr_names[:args.limit], te_names[:args.limit]
+        train = [r for r in train if r["img"] in set(tr_names)]
+        test = [r for r in test if r["img"] in set(te_names)]
     print(f"{len(train)} train / {len(test)} test expressions over "
           f"{len(tr_names)} / {len(te_names)} images", flush=True)
 
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("device:", dev, flush=True)
-    enc = tuple(m.to(dev) for m in load_dense_encoder())
+    enc = load_dense_encoder(args.encoder)
+    enc = tuple(m.to(dev) for m in enc) if args.encoder == "resnet18" else enc.to(dev)
     tr_imgs = ZipImages(args.root / "Images_train.zip")
     pca = fit_pca(cache / "dense_pca.npz", tr_imgs, tr_names, enc)
     F_tr = encode_all(cache / "train_dense.npy", tr_imgs, tr_names, enc, pca, args.encode_bs)
@@ -281,7 +289,7 @@ def main() -> None:
     table = []
     for chunk in np.array_split(order, 10):
         table.append({"p_max": round(float(probs[chunk].max()), 4), "acc": round(float(hit[chunk].mean()), 4)})
-    metrics = {"dataset": "VRSBench referring eval set", "model": "dense 14x14 FiLM grounder (hr_ground_net)",
+    metrics = {"dataset": "VRSBench referring eval set", "model": f"dense 14x14 FiLM grounder (hr_ground_net), {args.encoder} encoder",
                "test_acc_at_0.5": round(acc, 4), "test_mean_iou": round(miou, 4), "n_test": len(test),
                "held_out_acc_at_0.5": round(best, 4),
                "acc_by_class": {k: round(float(np.mean(v)), 3)
@@ -289,7 +297,7 @@ def main() -> None:
                "confidence_table": table, "pca_variance_kept": round(float(pca["explained"]), 4),
                "minutes": round((time.time() - t0) / 60, 1)}
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    torch.save({"arch": "dense", "model": best_state, "vocab": vocab, "pca_mean": pca["mean"],
+    torch.save({"arch": "dense", "encoder": args.encoder, "model": best_state, "vocab": vocab, "pca_mean": pca["mean"],
                 "pca_comp": pca["comp"], "pca_scale": pca["scale"], "metrics": metrics}, args.out)
     Path(str(args.out) + ".metrics.json").write_text(json.dumps(metrics, indent=2))
     print(json.dumps(metrics, indent=2))
